@@ -10,13 +10,33 @@ from core.config import SHOPIFY_API_KEY, SHOPIFY_API_SECRET, SCOPES, REDIRECT_UR
 from core.deps import get_db
 from models import Shop
 
-router = APIRouter()
+router = APIRouter(prefix="/auth", tags=["auth"])
 
 FRONTEND_SUCCESS_URL = "https://merchy-frontend-nwbb.vercel.app/install/success"
 
+def register_webhook(shop: str, access_token: str, topic: str, address: str):
+    url = f"https://{shop}/admin/api/2024-01/webhooks.json"
+
+    payload = {
+        "webhook": {
+            "topic": topic,
+            "address": address,
+            "format": "json"
+        }
+    }
+
+    headers = {
+        "X-Shopify-Access-Token": access_token,
+        "Content-Type": "application/json"
+    }
+
+    response = requests.post(url, json=payload, headers=headers)
+
+    print("Webhook response:", response.text)
+
 
 # 🔹 Step 1 — Redirect merchant to Shopify install screen
-@router.get("/auth/install")
+@router.get("/install")
 def install(shop: str):
     params = {
         "client_id": SHOPIFY_API_KEY,
@@ -30,7 +50,7 @@ def install(shop: str):
 
 
 # 🔹 Step 2 — Shopify redirects here after install
-@router.get("/auth/callback")
+@router.get("/callback")
 def shopify_callback(request: Request, db: Session = Depends(get_db)):
 
     params = dict(request.query_params)
@@ -85,6 +105,23 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
         db.add(new_shop)
 
     db.commit()
+    
+        # --- Register required Shopify webhooks ---
+    BASE_URL = "https://merchyapp-backend.up.railway.app/"  # change to your backend URL
+
+    register_webhook(
+        shop,
+        access_token,
+        "app/uninstalled",
+        f"{BASE_URL}/webhooks/uninstalled"
+    )
+
+    register_webhook(
+        shop,
+        access_token,
+        "orders/create",
+        f"{BASE_URL}/webhooks/orders_create"
+    )
 
     # --- Redirect to React success page ---
     return RedirectResponse(f"{FRONTEND_SUCCESS_URL}?shop={shop}")

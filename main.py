@@ -4,7 +4,7 @@ from core.auth  import router as auth_router
 from routers.requests import router as requests_router
 from routers.dashboard import router as dashboard_router
 from fastapi.middleware.cors import CORSMiddleware
-
+from core.webhooks import router as webhooks_router
 app = FastAPI()
 
 app.add_middleware(
@@ -19,3 +19,4 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(requests_router)
 app.include_router(dashboard_router)
+app.include_router(webhooks_router)

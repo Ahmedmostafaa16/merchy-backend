@@ -14,7 +14,7 @@ from services.transformation import forecast_all_items, forecast_items, items_br
 from services.search import search_inventory
 from typing import Annotated
 
-router = APIRouter()
+router = APIRouter(prefix="/requests", tags=["requests"])
 
 
 
