@@ -59,6 +59,7 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
     hmac_received = params.pop("hmac", None)
     code = params.get("code")
     shop = params.get("shop")
+    print("OAuth callback shop:", shop)
 
     # --- Verify HMAC ---
     sorted_params = "&".join([f"{k}={v}" for k, v in sorted(params.items())])
@@ -91,20 +92,27 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Token exchange failed")
 
     # --- Save or update shop in DB ---
-    existing_shop = db.query(Shop).filter(Shop.shop_domain == shop).first()
+    try:
+        existing_shop = db.query(Shop).filter(Shop.shop_domain == shop).first()
+        print("Existing shop found:", bool(existing_shop))
 
-    if existing_shop:
-        existing_shop.access_token = access_token
-        existing_shop.is_active = True
-    else:
-        new_shop = Shop(
-            shop_domain=shop,
-            access_token=access_token,
-            is_active=True
-        )
-        db.add(new_shop)
+        if existing_shop:
+            existing_shop.access_token = access_token
+            existing_shop.is_active = True
+        else:
+            new_shop = Shop(
+                shop_domain=shop,
+                access_token=access_token,
+                is_active=True
+            )
+            db.add(new_shop)
+            print("Created new shop record for:", shop)
 
-    db.commit()
+        db.commit()
+        print("DB commit successful for shop:", shop)
+    except Exception as exc:
+        print("DB error during shop save:", str(exc))
+        raise
     
         # --- Register required Shopify webhooks ---
     BASE_URL = "https://merchyapp-backend.up.railway.app/"  # change to your backend URL
