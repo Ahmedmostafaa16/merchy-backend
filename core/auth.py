@@ -12,8 +12,7 @@ from core.config import (
     SHOPIFY_API_KEY,
     SHOPIFY_API_SECRET,
     SCOPES,
-    REDIRECT_URI,
-    SHOPIFY_API_VERSION, )
+    REDIRECT_URI, )
 from core.deps import get_db
 from models import Shop
 
@@ -21,8 +20,10 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 FRONTEND_SUCCESS_URL = "https://merchy-frontend-nwbb.vercel.app/install/success"
 
+SHOPIFY_API_VERSION="2026-01"  # Update as needed, but keep consistent across all API calls
+
 STATE_COOKIE = "shopify_oauth_state"
-STATE_COOKIE_MAX_AGE = 600  # 10 minutes
+STATE_COOKIE_MAX_AGE = 1800  # 30 minutes
 
 
 # ----------------------------
