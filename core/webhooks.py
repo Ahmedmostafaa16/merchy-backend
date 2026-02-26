@@ -54,7 +54,7 @@ async def app_uninstalled(request: Request, db: Session = Depends(get_db)):
     if shop:
         store = db.query(Shop).filter(Shop.shop_domain == shop).first()
         if store:
-            store.is_active = False
+            db.delete(store)
             db.commit()
 
     return {"status": "uninstalled processed"}
