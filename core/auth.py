@@ -52,49 +52,51 @@ def install(shop: str):
 # 🔹 Step 2 — Shopify redirects here after install
 @router.get("/callback")
 def shopify_callback(request: Request, db: Session = Depends(get_db)):
+    from fastapi.responses import JSONResponse
+    import traceback
 
-    params = dict(request.query_params)
-
-    # Extract values
-    hmac_received = params.pop("hmac", None)
-    code = params.get("code")
-    shop = params.get("shop")
-    print("OAuth callback shop:", shop)
-
-    # --- Verify HMAC ---
-    sorted_params = "&".join([f"{k}={v}" for k, v in sorted(params.items())])
-
-    digest = hmac.new(
-        SHOPIFY_API_SECRET.encode(),
-        sorted_params.encode(),
-        hashlib.sha256
-    ).hexdigest()
-
-    if not hmac.compare_digest(digest, hmac_received):
-        raise HTTPException(status_code=400, detail="HMAC validation failed")
-
-    # --- Exchange code for token ---
-    token_response = requests.post(
-        f"https://{shop}/admin/oauth/access_token",
-        json={
-            "client_id": SHOPIFY_API_KEY,
-            "client_secret": SHOPIFY_API_SECRET,
-            "code": code,
-        },
-    )
-
-    token_json = token_response.json()
-    access_token = token_json.get("access_token")
-    print("TOKEN RESPONSE:", token_json)
-    print("SHOP:", shop)
-
-    if not access_token:
-        raise HTTPException(status_code=400, detail="Token exchange failed")
-
-    # --- Save or update shop in DB ---
     try:
+        params = dict(request.query_params)
+
+        # Extract values
+        hmac_received = params.pop("hmac", None)
+        code = params.get("code")
+        shop = params.get("shop")
+        print("OAuth callback: received shop:", shop)
+
+        # --- Verify HMAC ---
+        sorted_params = "&".join([f"{k}={v}" for k, v in sorted(params.items())])
+
+        digest = hmac.new(
+            SHOPIFY_API_SECRET.encode(),
+            sorted_params.encode(),
+            hashlib.sha256
+        ).hexdigest()
+
+        if not hmac.compare_digest(digest, hmac_received):
+            raise HTTPException(status_code=400, detail="HMAC validation failed")
+        print("OAuth callback: HMAC verified")
+
+        # --- Exchange code for token ---
+        token_response = requests.post(
+            f"https://{shop}/admin/oauth/access_token",
+            json={
+                "client_id": SHOPIFY_API_KEY,
+                "client_secret": SHOPIFY_API_SECRET,
+                "code": code,
+            },
+        )
+
+        token_json = token_response.json()
+        access_token = token_json.get("access_token")
+
+        if not access_token:
+            raise HTTPException(status_code=400, detail="Token exchange failed")
+        print("OAuth callback: token received")
+
+        # --- Save or update shop in DB ---
+        print("OAuth callback: DB insert/update started")
         existing_shop = db.query(Shop).filter(Shop.shop_domain == shop).first()
-        print("Existing shop found:", bool(existing_shop))
 
         if existing_shop:
             existing_shop.access_token = access_token
@@ -106,33 +108,35 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
                 is_active=True
             )
             db.add(new_shop)
-            print("Created new shop record for:", shop)
+            print("OAuth callback: created new shop record")
 
         db.commit()
-        print("DB commit successful for shop:", shop)
+        print("OAuth callback: DB commit success")
+
+        # --- Webhook registration temporarily disabled for isolation ---
+        # BASE_URL = "https://merchyapp-backend.up.railway.app/"
+        # register_webhook(
+        #     shop,
+        #     access_token,
+        #     "app/uninstalled",
+        #     f"{BASE_URL}/webhooks/uninstalled"
+        # )
+        # register_webhook(
+        #     shop,
+        #     access_token,
+        #     "orders/create",
+        #     f"{BASE_URL}/webhooks/orders_create"
+        # )
+
+        # --- Redirect to React success page ---
+        return RedirectResponse(f"{FRONTEND_SUCCESS_URL}?shop={shop}")
+
     except Exception as exc:
-        print("DB error during shop save:", str(exc))
-        raise
-    
-        # --- Register required Shopify webhooks ---
-    BASE_URL = "https://merchyapp-backend.up.railway.app/"  # change to your backend URL
-
-    register_webhook(
-        shop,
-        access_token,
-        "app/uninstalled",
-        f"{BASE_URL}/webhooks/uninstalled"
-    )
-
-    register_webhook(
-        shop,
-        access_token,
-        "orders/create",
-        f"{BASE_URL}/webhooks/orders_create"
-    )
-
-    # --- Redirect to React success page ---
-    return RedirectResponse(f"{FRONTEND_SUCCESS_URL}?shop={shop}")
+        print("OAuth callback error:", str(exc))
+        print(traceback.format_exc())
+        status_code = exc.status_code if isinstance(exc, HTTPException) else 500
+        detail = exc.detail if isinstance(exc, HTTPException) else "OAuth callback failed"
+        return JSONResponse(status_code=status_code, content={"error": detail})
 
 
 # 🔹 Step 3 — Endpoint for frontend to verify shop install
