@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, status, HTTPException
 from sqlalchemy.orm import Session
 from core.deps import get_db
+from core.session_token import ensure_shop_matches_token, verify_shopify_session_token
 from services.dashboard_services import DashboardServices
 from models import Shop
 
@@ -15,28 +16,48 @@ def get_shop_or_404(db: Session, shop_domain: str) -> Shop:
 
 
 @router.get("/total-skus", status_code=status.HTTP_200_OK)
-def get_total_skus(shop_domain: str, db: Session = Depends(get_db)):
+def get_total_skus(
+    shop_domain: str,
+    db: Session = Depends(get_db),
+    token_shop_domain: str = Depends(verify_shopify_session_token),
+):
+    ensure_shop_matches_token(shop_domain, token_shop_domain)
     shop = get_shop_or_404(db, shop_domain)
     dashboard_service = DashboardServices(db, shop.id)
     return dashboard_service.total_sku_count()
 
 
 @router.get("/average-sales-per-day", status_code=status.HTTP_200_OK)
-def get_average_sales_per_day(shop_domain: str, db: Session = Depends(get_db)):
+def get_average_sales_per_day(
+    shop_domain: str,
+    db: Session = Depends(get_db),
+    token_shop_domain: str = Depends(verify_shopify_session_token),
+):
+    ensure_shop_matches_token(shop_domain, token_shop_domain)
     shop = get_shop_or_404(db, shop_domain)
     dashboard_service = DashboardServices(db, shop.id)
     return dashboard_service.average_sales_per_day()
 
 
 @router.get("/coverage-days", status_code=status.HTTP_200_OK)
-def get_coverage_days(shop_domain: str, db: Session = Depends(get_db)):
+def get_coverage_days(
+    shop_domain: str,
+    db: Session = Depends(get_db),
+    token_shop_domain: str = Depends(verify_shopify_session_token),
+):
+    ensure_shop_matches_token(shop_domain, token_shop_domain)
     shop = get_shop_or_404(db, shop_domain)
     dashboard_service = DashboardServices(db, shop.id)
     return dashboard_service.coverage_days()
 
 
 @router.get("/stock-risk", status_code=status.HTTP_200_OK)
-def get_stock_risk(shop_domain: str, db: Session = Depends(get_db)):
+def get_stock_risk(
+    shop_domain: str,
+    db: Session = Depends(get_db),
+    token_shop_domain: str = Depends(verify_shopify_session_token),
+):
+    ensure_shop_matches_token(shop_domain, token_shop_domain)
     shop = get_shop_or_404(db, shop_domain)
     dashboard_service = DashboardServices(db, shop.id)
     return dashboard_service.stock_risk()

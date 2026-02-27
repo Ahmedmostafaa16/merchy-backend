@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -29,6 +29,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(_: Request, exc: HTTPException):
+    if exc.status_code == 401:
+        return JSONResponse(status_code=401, content={"error": "invalid session token"})
+    if exc.status_code == 403:
+        return JSONResponse(status_code=403, content={"error": "shop mismatch"})
+    if exc.status_code == 500:
+        return JSONResponse(status_code=500, content={"error": "server error"})
+
+    if isinstance(exc.detail, dict):
+        return JSONResponse(status_code=exc.status_code, content=exc.detail)
+
+    return JSONResponse(status_code=exc.status_code, content={"error": str(exc.detail)})
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(_: Request, __: Exception):
+    return JSONResponse(status_code=500, content={"error": "server error"})
 
 
 # ----------------------------

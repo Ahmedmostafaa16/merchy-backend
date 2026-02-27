@@ -8,6 +8,7 @@ from fastapi.responses import RedirectResponse, HTMLResponse, StreamingResponse
 from sqlalchemy.orm import Session
 from models import Inventory, Shop, Sales
 from core.deps import get_db
+from core.session_token import ensure_shop_matches_token, verify_shopify_session_token
 from services.shopify import Operations
 from services.inventory_repo import get_last_inventory_update,get_sales_time_range,get_sales_period
 from services.transformation import forecast_all_items, forecast_items, items_breakdown,csv_maker
@@ -20,7 +21,12 @@ router = APIRouter(prefix="/requests", tags=["requests"])
 
 
 @router.post("/sync/inventory/{shop_domain}")
-def sync_inventory(shop_domain: str, db: Session = Depends(get_db)):
+def sync_inventory(
+    shop_domain: str,
+    db: Session = Depends(get_db),
+    token_shop_domain: str = Depends(verify_shopify_session_token),
+):
+    ensure_shop_matches_token(shop_domain, token_shop_domain)
 
     shop = db.query(Shop).filter(Shop.shop_domain == shop_domain).first()
 
@@ -55,7 +61,9 @@ def sync_inventory(shop_domain: str, db: Session = Depends(get_db)):
 def sync_sales(shop_domain: str, 
                db: Session = Depends(get_db),
                start_date: date = Query(...), 
-               end_date: date = Query(...)):
+               end_date: date = Query(...),
+               token_shop_domain: str = Depends(verify_shopify_session_token)):
+        ensure_shop_matches_token(shop_domain, token_shop_domain)
      
         shop = db.query(Shop).filter(Shop.shop_domain == shop_domain).first()
         if not shop:
@@ -81,8 +89,10 @@ def sync_sales(shop_domain: str,
 def inventory_search(
     shop_domain: str,
     search_query: str,
-    db: Session = Depends(get_db) 
+    db: Session = Depends(get_db),
+    token_shop_domain: str = Depends(verify_shopify_session_token),
                                     ):
+        ensure_shop_matches_token(shop_domain, token_shop_domain)
     
         shop = db.query(Shop).filter(Shop.shop_domain == shop_domain).first()
         if not shop:
@@ -103,7 +113,13 @@ def inventory_search(
         
 @router.post("/report",status_code  =status.HTTP_200_OK)
 
-def forecast_all(shop_domain : str, db: Session = Depends(get_db), number_of_days : int = Query(..., gt=0)):
+def forecast_all(
+    shop_domain : str,
+    db: Session = Depends(get_db),
+    number_of_days : int = Query(..., gt=0),
+    token_shop_domain: str = Depends(verify_shopify_session_token),
+):
+    ensure_shop_matches_token(shop_domain, token_shop_domain)
     shop = db.query(Shop).filter(Shop.shop_domain == shop_domain).first()
     if not shop:
         raise HTTPException(
@@ -132,7 +148,9 @@ def customized_report(
     number_of_days: int,
     shop_domain: str,
     db: Session = Depends(get_db),
+    token_shop_domain: str = Depends(verify_shopify_session_token),
 ):
+    ensure_shop_matches_token(shop_domain, token_shop_domain)
     try:
         # get shop id from domain
         shop = db.query(Shop).filter(Shop.shop_domain == shop_domain).first()
@@ -175,7 +193,9 @@ def export_items_breakdown(
     shop_domain : str,
     db: Session = Depends(get_db),
     number_of_days: int = Query(..., gt=0),
+    token_shop_domain: str = Depends(verify_shopify_session_token),
 ):
+    ensure_shop_matches_token(shop_domain, token_shop_domain)
     
     shop = db.query(Shop).filter(Shop.shop_domain == shop_domain).first()
     if not shop:
