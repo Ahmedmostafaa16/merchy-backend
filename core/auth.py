@@ -100,6 +100,31 @@ def register_required_webhooks(shop: str, access_token: str, backend_base_url: s
     )
 
 
+def register_uninstall_webhook(shop: str, access_token: str):
+    url = f"https://{shop}/admin/api/2024-01/webhooks.json"
+    payload = {
+        "webhook": {
+            "topic": "app/uninstalled",
+            "address": "https://merchyapp-backend.up.railway.app/webhooks/uninstalled",
+            "format": "json",
+        }
+    }
+    headers = {
+        "X-Shopify-Access-Token": access_token,
+        "Content-Type": "application/json",
+    }
+
+    response = requests.post(url, json=payload, headers=headers, timeout=30)
+
+    if response.ok:
+        print(f"[webhook] uninstall webhook registered for {shop}")
+    else:
+        print(
+            f"[webhook] uninstall webhook registration failed for {shop}: "
+            f"{response.status_code} {response.text}"
+        )
+
+
 # ----------------------------
 # Step 1 — Install redirect
 # ----------------------------
@@ -193,13 +218,11 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
 
     db.commit()
 
-    # Register webhooks
-    backend_base_url = str(request.base_url).rstrip("/")
-
+    # Register uninstall webhook (non-blocking)
     try:
-        register_required_webhooks(shop, access_token, backend_base_url)
+        register_uninstall_webhook(shop, access_token)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Webhook registration failed: {e}")
+        print(f"[webhook] uninstall webhook registration error for {shop}: {e}")
 
     # Redirect to frontend
     response = RedirectResponse(f"{FRONTEND_SUCCESS_URL}?shop={shop}")
