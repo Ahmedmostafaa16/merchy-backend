@@ -94,7 +94,7 @@ class Operations:
         return rows
       
       
-    def delete_inventory(self,shop_id : int ,database: Session):
+    def delete_inventory(self,shop_id : str ,database: Session):
         database.query(Inventory).filter(Inventory.shop_id == shop_id).delete()
         database.commit()
         
@@ -166,7 +166,7 @@ class Operations:
 
         return sales_rows
       
-    def delete_sales(self,shop_id : int ,database: Session):
+    def delete_sales(self,shop_id : str ,database: Session):
         database.query(Sales).filter(Sales.shop_id == shop_id).delete()
         database.commit()
 
