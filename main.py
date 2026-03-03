@@ -7,9 +7,14 @@ from core.webhooks import router as webhooks_router
 from routers.requests import router as requests_router
 from routers.dashboard import router as dashboard_router
 from routers.api import router as api_router
-
+from db import Base, engine
+from models import Shop, Inventory, Sales
 
 app = FastAPI()
+
+@app.on_event("startup")
+def create_tables():
+    Base.metadata.create_all(bind=engine)
 
 
 # ----------------------------
