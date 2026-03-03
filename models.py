@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Date, ForeignKey, Numeric, String, Boolean, DateTime,Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
+from sqlalchemy.orm import relationship
 from db import Base
 import uuid
 
@@ -12,6 +13,19 @@ class Shop(Base):
     access_token = Column(String, nullable=False)
     installed_at = Column(DateTime(timezone=True), server_default=func.now())
     is_active = Column(Boolean, default=True)
+    
+    inventory_items = relationship(
+        "Inventory",
+        back_populates="shop",
+        cascade="all, delete-orphan"
+    )
+
+    sales_records = relationship(
+        "Sales",
+        back_populates="shop",
+        cascade="all, delete-orphan"
+    )
+
     
     
 class Inventory(Base):
