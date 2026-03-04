@@ -159,25 +159,17 @@ def customized_report(
         time_diff = get_sales_period(db, shop.id)
 
         # build forecast
-        csv_text = csv_maker(
-            forecast_items(
+        rows = forecast_items(
                 db,
                 list(items),
                 shop.id,
                 number_of_days,
                 time_diff
             )
-        )
+        
+        
 
-        buffer = io.StringIO(csv_text)
-
-        return StreamingResponse(
-            iter([buffer.getvalue()]),
-            media_type="text/csv",
-            headers={
-                "Content-Disposition": "attachment; filename=customized_restock_report.csv"
-            },
-        )
+        return rows
 
     except Exception as e:
         raise HTTPException(

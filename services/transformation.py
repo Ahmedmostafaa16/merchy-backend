@@ -297,9 +297,10 @@ def items_breakdown(database: Session,
                 ELSE (net_items_sold::numeric / :sales_duration) * :restock_days
             END AS restock_amount
         FROM tablex)
-        SELECT * FROM restock_table 
+        SELECT title ,sum(net_items_sold) AS total_net_items_sold FROM restock_table 
         where sku is not null
-        order by net_items_sold desc;
+        group by title
+        order by total_net_items_sold desc;
     """)
     result = database.execute(
         sql,
