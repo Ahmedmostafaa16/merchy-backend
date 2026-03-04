@@ -116,7 +116,8 @@ def forecast_all_items(
         }
     )
 
-    return result
+    rows = result.mappings().all()
+    return rows
 
 
 def forecast_items(database: Session,items : list, shop_id: int , restock_days: int, sales_duration: int) -> str:
@@ -216,7 +217,8 @@ def forecast_items(database: Session,items : list, shop_id: int , restock_days: 
         }
     )
     
-    return result
+    rows = result.mappings().all()
+    return rows
 
 def items_breakdown(database: Session,
                     shop_id: str , 
@@ -304,8 +306,9 @@ def items_breakdown(database: Session,
         {
             "shop_id": shop_id,
             "sales_duration": sales_duration,
-            "restock_days": restock_days,
+            "restock_days": restock_days, 
             
         }
     )
-    return [dict(row._mapping) for row in result]
+    rows = result.mappings().all()
+    return rows

@@ -130,15 +130,13 @@ def forecast_all(
     try :
         
         time_diff = get_sales_period(db,shop.id) 
-        csv = csv_maker(forecast_all_items(db,number_of_days,time_diff,shop.id))
-        buffer = io.StringIO(csv)
-        return StreamingResponse(
-            buffer,media_type="text/csv",
-            headers={"Content-Disposition": "attachment; filename=restock_report.csv"}) 
+        rows = forecast_all_items(db,number_of_days,time_diff,shop.id)
+        return rows
+    
     except Exception as e :
         raise HTTPException(
             status_code=500,
-            detail=f"Report generation failed: {str(e)}"
+            detail=f"data fetching failed: {str(e)}"
         )
         
         
