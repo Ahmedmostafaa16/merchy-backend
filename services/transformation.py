@@ -115,7 +115,7 @@ def forecast_all_items(
             ELSE 'slow_moving'
         END AS status,
 
-        ROUND(restock_amount,2) AS restock_amount
+        ROUND(restock_amount ::numeric,2) AS restock_amount
 
     FROM ranked
     ORDER BY sales_per_day DESC
