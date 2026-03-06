@@ -6,6 +6,7 @@ def search_inventory(db, shop_id, search_query):
     results = (
         db.query(Inventory.title)
         .filter(Inventory.shop_id == shop_id)
+        .filter(Inventory.sku.isnot(None))
         .filter(Inventory.title.ilike(f"%{search_query}%"))
         .distinct()
         .limit(10)
