@@ -189,7 +189,8 @@ def customized_report(
         return rows
 
     except Exception as e:
-        print("ERROR:", e)
+        import traceback
+        traceback.print_exc()
         raise
     
     
