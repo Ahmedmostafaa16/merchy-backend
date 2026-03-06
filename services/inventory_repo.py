@@ -12,19 +12,22 @@ def get_last_inventory_update(data_base : Session, shop_id: int):
     
     )
     
-def get_sales_time_range(data_base : Session, shop_id: int):
-    last_sale = (
-        data_base.query(func.max(Sales.created_at))
+def get_sales_time_range(database: Session, shop_id: int):
+    result = (
+        database.query(
+            func.min(Sales.created_at),
+            func.max(Sales.created_at)
+        )
         .filter(Sales.shop_id == shop_id)
-        .scalar()
+        .first()
     )
-    first_sale = (
-        data_base.query(func.min(Sales.created_at))
-        .filter(Sales.shop_id == shop_id)
-        .scalar()
-    )
-    return {"min_sales_date" : first_sale.date() if first_sale else None, "max_sales_date": last_sale.date() if last_sale else None}
 
+    first_sale, last_sale = result
+
+    return {
+        "min_sales_date": first_sale.date() if first_sale else None,
+        "max_sales_date": last_sale.date() if last_sale else None
+    }
 def get_sales_period(data_base : Session, shop_id: int):
     last_sale = (
         data_base.query(func.max(Sales.created_at))

@@ -69,7 +69,12 @@ def sync_sales(shop_domain: str,
         if not shop:
             raise HTTPException(status_code=404, detail="Shop not found")
         sales_period = get_sales_time_range(db, shop.id)
-        if sales_period["min_sales_date"] == start_date and sales_period["max_sales_date"] == end_date:
+        if (
+            sales_period["min_sales_date"]
+            and sales_period["max_sales_date"]
+            and sales_period["min_sales_date"] == start_date
+            and sales_period["max_sales_date"] == end_date
+                ):
             return {
                 "status": "skipped",
                 "reason": "Sales data already available for the specified period",
@@ -161,7 +166,7 @@ def customized_report(
     items: Annotated[list[str], Query(...)],
     number_of_days: int,
     shop_domain: str,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db),minimum_value: int = Query(..., gt=0),
     token_shop_domain: str = Depends(verify_shopify_session_token),
 ):
     ensure_shop_matches_token(shop_domain, token_shop_domain)
@@ -180,7 +185,7 @@ def customized_report(
                 list(items),
                 shop.id,
                 number_of_days,
-                time_diff
+                time_diff,minimum_value
             )
         
         
