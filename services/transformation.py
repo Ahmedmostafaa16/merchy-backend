@@ -210,10 +210,8 @@ def forecast_items(
     )
 
     SELECT
-        title,
-        ROUND(SUM(restock_amount)::numeric, 2) AS total_restock_amount
+        *
     FROM restock_table
-    GROUP BY title
     ORDER BY total_restock_amount DESC
     """)
 
