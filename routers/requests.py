@@ -151,10 +151,9 @@ def forecast_all(
         return rows
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"data fetching failed: {str(e)}"
-        )
+        import traceback
+        traceback.print_exc()
+        raise
         
         
 @router.post("/customized/report", status_code=status.HTTP_200_OK)
