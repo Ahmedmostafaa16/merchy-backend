@@ -189,10 +189,8 @@ def customized_report(
         return rows
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Report generation failed: {str(e)}"
-        )
+        print("ERROR:", e)
+        raise
     
     
 @router.get("/breakdown", status_code=status.HTTP_200_OK)
