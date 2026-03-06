@@ -111,29 +111,46 @@ def inventory_search(
 
 
         
-@router.post("/report",status_code  =status.HTTP_200_OK)
-
+@router.post("/report", status_code=status.HTTP_200_OK)
 def forecast_all(
-    shop_domain : str,
+    shop_domain: str,
     db: Session = Depends(get_db),
-    number_of_days : int = Query(..., gt=0),
+    number_of_days: int = Query(..., gt=0),
+    minimum_value: int = Query(..., gt=0),
     token_shop_domain: str = Depends(verify_shopify_session_token),
 ):
+
     ensure_shop_matches_token(shop_domain, token_shop_domain)
+
     shop = db.query(Shop).filter(Shop.shop_domain == shop_domain).first()
+
     if not shop:
         raise HTTPException(
             status_code=404,
             detail="shop not found"
         )
-        
-    try :
-        
-        time_diff = get_sales_period(db,shop.id) 
-        rows = forecast_all_items(db,number_of_days,time_diff,shop.id)
+
+    try:
+
+        sales_duration = get_sales_period(db, shop.id)
+
+        if sales_duration <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="sales period invalid"
+            )
+
+        rows = forecast_all_items(
+            database=db,
+            restock_days=number_of_days,
+            sales_duration=sales_duration,
+            minimum_value=minimum_value,
+            shop_id=shop.id
+        )
+
         return rows
-    
-    except Exception as e :
+
+    except Exception as e:
         raise HTTPException(
             status_code=500,
             detail=f"data fetching failed: {str(e)}"
