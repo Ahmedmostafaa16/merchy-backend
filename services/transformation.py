@@ -105,14 +105,14 @@ def forecast_all_items(
         size,
         sku,
         lifetime,
-        sales_per_day,
+        sales_per_day,inventory,
 
         CASE
-            WHEN inventory = 0 AND net_items_sold > 0 THEN 'stock_out'
-            WHEN net_items_sold = 0 THEN 'never_sold'
-            WHEN velocity_percentile >= 0.8 THEN 'fast_moving'
+            WHEN inventory = 0 AND net_items_sold > 0 THEN 'stock out'
+            WHEN net_items_sold = 0 THEN 'never sold'
+            WHEN velocity_percentile >= 0.8 THEN 'fast moving'
             WHEN velocity_percentile >= 0.5 THEN 'moderate'
-            ELSE 'slow_moving'
+            ELSE 'slow moving'
         END AS status,
 
         ROUND(restock_amount ::numeric,2) AS restock_amount
@@ -223,11 +223,11 @@ def forecast_items(
         sales_per_day,inventory,
 
         CASE
-            WHEN inventory = 0 AND net_items_sold > 0 THEN 'stock_out'
-            WHEN net_items_sold = 0 THEN 'never_sold'
-            WHEN velocity_percentile >= 0.8 THEN 'fast_moving'
+            WHEN inventory = 0 AND net_items_sold > 0 THEN 'stock out'
+            WHEN net_items_sold = 0 THEN 'never sold'
+            WHEN velocity_percentile >= 0.8 THEN 'fast moving'
             WHEN velocity_percentile >= 0.5 THEN 'moderate'
-            ELSE 'slow_moving'
+            ELSE 'slow moving'
         END AS status,
 
         ROUND(restock_amount::numeric, 2) AS restock_amount

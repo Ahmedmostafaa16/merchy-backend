@@ -62,6 +62,27 @@ def get_stock_risk(
     dashboard_service = DashboardServices(db, shop.id)
     return dashboard_service.stock_risk()
 
+@router.get("/inventory-value", status_code=status.HTTP_200_OK)
+def get_inventory_value(
+    shop_domain: str,
+    db: Session = Depends(get_db),
+    token_shop_domain: str = Depends(verify_shopify_session_token),
+):
+    ensure_shop_matches_token(shop_domain, token_shop_domain)
+    shop = get_shop_or_404(db, shop_domain)
+    dashboard_service = DashboardServices(db, shop.id)
+    return dashboard_service.inventory_value()
+
+@router.get("/units-in-stock", status_code=status.HTTP_200_OK)
+def get_units_in_stock(
+    shop_domain: str,
+    db: Session = Depends(get_db),
+    token_shop_domain: str = Depends(verify_shopify_session_token),
+):
+    ensure_shop_matches_token(shop_domain, token_shop_domain)
+    shop = get_shop_or_404(db, shop_domain)
+    dashboard_service = DashboardServices(db, shop.id)
+    return dashboard_service.units_in_stock()
 
 
 
