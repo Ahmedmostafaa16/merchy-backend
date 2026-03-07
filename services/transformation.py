@@ -134,7 +134,6 @@ def forecast_all_items(
     rows = result.mappings().all()
     return rows
 
-from sqlalchemy import text
 
 def forecast_items(
     database: Session,
@@ -207,12 +206,34 @@ def forecast_items(
                 )
             END AS restock_amount
         FROM cte3
+    ),
+
+    ranked AS (
+        SELECT
+            *,
+            PERCENT_RANK() OVER (ORDER BY sales_per_day) AS velocity_percentile
+        FROM restock_table
     )
 
     SELECT
-        *
-    FROM restock_table
-    ORDER BY total_restock_amount DESC
+        title,
+        size,
+        sku,
+        lifetime,
+        sales_per_day,
+
+        CASE
+            WHEN inventory = 0 AND net_items_sold > 0 THEN 'stock_out'
+            WHEN net_items_sold = 0 THEN 'never_sold'
+            WHEN velocity_percentile >= 0.8 THEN 'fast_moving'
+            WHEN velocity_percentile >= 0.5 THEN 'moderate'
+            ELSE 'slow_moving'
+        END AS status,
+
+        ROUND(restock_amount::numeric, 2) AS restock_amount
+
+    FROM ranked
+    ORDER BY sales_per_day DESC
     """)
 
     result = database.execute(
@@ -228,6 +249,8 @@ def forecast_items(
 
     rows = result.mappings().all()
     return rows
+
+
 
 def items_breakdown(database: Session,
                     shop_id: str , 
