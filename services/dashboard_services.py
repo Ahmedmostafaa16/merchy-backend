@@ -56,7 +56,7 @@ class DashboardServices:
             self.data_base.query(func.sum(Inventory.inventory * Inventory.price))
             .filter(Inventory.shop_id == self.shop_id).filter(Inventory.sku.isnot(None))
             .filter(Inventory.sku.isnot(""))
-            .first()
+            .scalar()
         )
         return round(self._to_number(total_value_row[0] if total_value_row else 0), 2)
     
@@ -66,7 +66,7 @@ class DashboardServices:
             self.data_base.query(func.sum(Inventory.inventory))
             .filter(Inventory.shop_id == self.shop_id).filter(Inventory.sku.isnot(None))
             .filter(Inventory.sku.isnot(""))
-            .first()
+            .scalar()
         )
         return int(self._to_number(total_inventory_row[0] if total_inventory_row else 0))
     
