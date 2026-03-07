@@ -105,7 +105,7 @@ def forecast_all_items(
         size,
         sku,
         lifetime,
-        round(sales_per_day,2),inventory,
+        round(sales_per_day ::numeric,2),inventory,
 
         CASE
             WHEN inventory = 0 AND net_items_sold > 0 THEN 'stock out'
@@ -220,7 +220,7 @@ def forecast_items(
         size,
         sku,
         lifetime,
-        round(sales_per_day,2),inventory,
+        round(sales_per_day ::numeric,2),inventory,
 
         CASE
             WHEN inventory = 0 AND net_items_sold > 0 THEN 'stock out'
