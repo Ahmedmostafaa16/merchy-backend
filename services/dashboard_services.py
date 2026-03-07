@@ -52,23 +52,25 @@ class DashboardServices:
     
     
     def inventory_value(self) -> float:
-        total_value_row = (
+        total_value = (
             self.data_base.query(func.sum(Inventory.inventory * Inventory.price))
-            .filter(Inventory.shop_id == self.shop_id).filter(Inventory.sku.isnot(None))
-            .filter(Inventory.sku.isnot(""))
+            .filter(Inventory.shop_id == self.shop_id)
+            .filter(Inventory.sku.isnot(None))
+            .filter(Inventory.sku != "")
             .scalar()
         )
-        return round(self._to_number(total_value_row[0] if total_value_row else 0), 2)
-    
+
+        return round(self._to_number(total_value or 0), 2)
+        
     
     def units_in_stock(self) -> int:
         total_inventory_row = (
             self.data_base.query(func.sum(Inventory.inventory))
             .filter(Inventory.shop_id == self.shop_id).filter(Inventory.sku.isnot(None))
-            .filter(Inventory.sku.isnot(""))
+            .filter(Inventory.sku != "")
             .scalar()
         )
-        return int(self._to_number(total_inventory_row[0] if total_inventory_row else 0))
+        return int(self._to_number(total_inventory_row if total_inventory_row else 0))
     
     def coverage_days(self) -> float:
         total_inventory_row = (
