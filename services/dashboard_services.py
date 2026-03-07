@@ -53,7 +53,7 @@ class DashboardServices:
     
     def inventory_value(self) -> float:
         total_value_row = (
-            self.data_base.query(func.sum(Inventory.inventory * Inventory.unit_price))
+            self.data_base.query(func.sum(Inventory.inventory * Inventory.price))
             .filter(Inventory.shop_id == self.shop_id)
             .first()
         )
