@@ -54,7 +54,8 @@ class DashboardServices:
     def inventory_value(self) -> float:
         total_value_row = (
             self.data_base.query(func.sum(Inventory.inventory * Inventory.price))
-            .filter(Inventory.shop_id == self.shop_id)
+            .filter(Inventory.shop_id == self.shop_id).filter(Inventory.sku.isnot(None))
+            .filter(Inventory.sku.isnot(""))
             .first()
         )
         return round(self._to_number(total_value_row[0] if total_value_row else 0), 2)
@@ -63,7 +64,8 @@ class DashboardServices:
     def units_in_stock(self) -> int:
         total_inventory_row = (
             self.data_base.query(func.sum(Inventory.inventory))
-            .filter(Inventory.shop_id == self.shop_id)
+            .filter(Inventory.shop_id == self.shop_id).filter(Inventory.sku.isnot(None))
+            .filter(Inventory.sku.isnot(""))
             .first()
         )
         return int(self._to_number(total_inventory_row[0] if total_inventory_row else 0))
@@ -71,7 +73,8 @@ class DashboardServices:
     def coverage_days(self) -> float:
         total_inventory_row = (
             self.data_base.query(func.sum(Inventory.inventory))
-            .filter(Inventory.shop_id == self.shop_id)
+            .filter(Inventory.shop_id == self.shop_id).filter(Inventory.sku.isnot(None))
+            .filter(Inventory.sku.isnot(""))
             .first()
         )
         total_inventory = self._to_number(total_inventory_row[0] if total_inventory_row else 0)
