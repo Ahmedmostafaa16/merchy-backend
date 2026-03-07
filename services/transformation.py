@@ -220,7 +220,7 @@ def forecast_items(
         size,
         sku,
         lifetime,
-        sales_per_day,
+        sales_per_day,inventory,
 
         CASE
             WHEN inventory = 0 AND net_items_sold > 0 THEN 'stock_out'
