@@ -185,7 +185,7 @@ def forecast_items(
             CASE
                 WHEN net_items_sold = 0 THEN NULL
                 ELSE ROUND(
-                    (inventory * :sales_duration) / net_items_sold,
+                    inventory / (net_items_sold::numeric / :sales_duration),
                     2
                 )
             END AS lifetime,
@@ -220,7 +220,7 @@ def forecast_items(
         size,
         sku,
         lifetime,
-        round(sales_per_day ::numeric,2),inventory,
+        round(sales_per_day ::numeric,2) as sales_per_day,inventory,
 
         CASE
             WHEN inventory = 0 AND net_items_sold > 0 THEN 'stock out'
