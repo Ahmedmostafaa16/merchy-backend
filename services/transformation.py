@@ -105,7 +105,7 @@ def forecast_all_items(
         size,
         sku,
         lifetime,
-        round(sales_per_day ::numeric,2),inventory,
+        round(sales_per_day ::numeric,2) as sales_per_day,inventory,
 
         CASE
             WHEN inventory = 0 AND net_items_sold > 0 THEN 'stock out'
@@ -115,7 +115,7 @@ def forecast_all_items(
             ELSE 'slow moving'
         END AS status,
 
-        ROUND(restock_amount ::numeric,2) AS restock_amount
+        CEIL(restock_amount) AS restock_amount
 
     FROM ranked
     ORDER BY sales_per_day DESC
@@ -230,7 +230,7 @@ def forecast_items(
             ELSE 'slow moving'
         END AS status,
 
-        ROUND(restock_amount::numeric, 2) AS restock_amount
+        CEIL(restock_amount) AS restock_amount
 
     FROM ranked
     ORDER BY sales_per_day DESC
