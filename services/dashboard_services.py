@@ -53,14 +53,15 @@ class DashboardServices:
     
     def inventory_value(self) -> float:
         total_value = (
-            self.data_base.query(func.sum(Inventory.inventory * Inventory.price))
+            
+             self.data_base.query(func.sum(Inventory.inventory * func.coalesce(Inventory.price, 0)))
             .filter(Inventory.shop_id == self.shop_id)
             .filter(Inventory.sku.isnot(None))
             .filter(Inventory.sku != "")
             .scalar()
         )
 
-        return round(self._to_number(total_value or 0), 2)
+        return round((total_value or 0), 2)
         
     
     def units_in_stock(self) -> int:
