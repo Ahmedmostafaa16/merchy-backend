@@ -86,12 +86,13 @@ def forecast_all_items(
             CASE
                 WHEN net_items_sold = 0 THEN :minimum_value
                 ELSE GREATEST(
-                    (sales_per_day * :restock_days),
-                    :minimum_value
+                    ((sales_per_day * :restock_days) - inventory),
+                    0
                 )
             END AS restock_amount
         FROM cte3
-    ),
+
+                    ),
 
     ranked AS (
         SELECT
@@ -201,8 +202,8 @@ def forecast_items(
                 CASE
                     WHEN net_items_sold = 0 THEN :minimum_value
                     ELSE GREATEST(
-                        (sales_per_day * :restock_days),
-                        :minimum_value
+                        ((sales_per_day * :restock_days) - inventory),
+                        0
                     )
                 END AS restock_amount
             FROM cte3
