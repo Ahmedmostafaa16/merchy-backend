@@ -211,11 +211,11 @@ def forecast_items(
         ),
 
         ranked AS (
-            SELECT
-                *,
-                PERCENT_RANK() OVER (ORDER BY sales_per_day) AS velocity_percentile
+            SELECT*,
+            PERCENT_RANK() OVER (ORDER BY sales_per_day) AS velocity_percentile
             FROM restock_table
-        )
+            WHERE net_items_sold > 0
+            )
 
         SELECT
             title,
