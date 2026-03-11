@@ -98,6 +98,7 @@ def forecast_all_items(
                 percentile_cont(0.50) WITHIN GROUP (ORDER BY sales_per_day) AS q2,
                 percentile_cont(0.75) WITHIN GROUP (ORDER BY sales_per_day) AS q3
             FROM restock_table
+            where net_items_sold > 0
         )
 
         SELECT
