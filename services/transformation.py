@@ -74,7 +74,7 @@ def forecast_all_items(
                 )
             END AS lifetime,
 
-            net_items_sold::float / :sales_duration AS sales_per_day
+            net_items_sold::numeric / :sales_duration AS sales_per_day
 
         FROM main
         WHERE sku IS NOT NULL
@@ -96,7 +96,7 @@ def forecast_all_items(
     ranked AS (
     SELECT
         *,
-        PERCENT_RANK() OVER (ORDER BY sales_per_day) AS velocity_percentile
+        PERCENT_RANK() OVER (ORDER BY sales_per_day ASC) AS velocity_percentile
     FROM restock_table
     )
 
@@ -191,7 +191,7 @@ def forecast_items(
                     )
                 END AS lifetime,
 
-                net_items_sold::float / :sales_duration AS sales_per_day
+                net_items_sold::numeric / :sales_duration AS sales_per_day
 
             FROM main
             WHERE sku IS NOT NULL
@@ -215,7 +215,7 @@ def forecast_items(
                 *,
                 CASE
                     WHEN net_items_sold > 0
-                    THEN PERCENT_RANK() OVER (ORDER BY sales_per_day)
+                    THEN PERCENT_RANK() OVER (ORDER BY sales_per_day ASC)
                     ELSE NULL
                 END AS velocity_percentile
             FROM restock_table
