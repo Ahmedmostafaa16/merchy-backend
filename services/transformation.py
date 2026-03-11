@@ -65,6 +65,7 @@ def forecast_all_items(
                 shop_id,
                 net_items_sold,
                 price,
+
                 CASE
                     WHEN net_items_sold = 0 THEN NULL
                     ELSE ROUND(
@@ -72,7 +73,9 @@ def forecast_all_items(
                         2
                     )
                 END AS lifetime,
+
                 net_items_sold::numeric / :sales_duration AS sales_per_day
+
             FROM main
             WHERE sku IS NOT NULL
         ),
@@ -90,41 +93,34 @@ def forecast_all_items(
             FROM cte3
         ),
 
-        sold_ranked AS (
+        quartiles AS (
             SELECT
-                sku,
-                NTILE(5) OVER (ORDER BY sales_per_day ASC) AS velocity_bucket
+                percentile_cont(0.50) WITHIN GROUP (ORDER BY sales_per_day) AS q2,
+                percentile_cont(0.75) WITHIN GROUP (ORDER BY sales_per_day) AS q3
             FROM restock_table
-            WHERE net_items_sold > 0
-        ),
-
-        final_ranked AS (
-            SELECT
-                r.*,
-                s.velocity_bucket
-            FROM restock_table r
-            LEFT JOIN sold_ranked s
-                ON r.sku = s.sku
         )
 
         SELECT
-            title,
-            size,
-            sku,
-            lifetime,
-            ROUND(sales_per_day, 2) AS sales_per_day,
-            inventory,
+            r.title,
+            r.size,
+            r.sku,
+            r.lifetime,
+            ROUND(r.sales_per_day,2) AS sales_per_day,
+            r.inventory,
+
             CASE
-                WHEN inventory = 0 AND net_items_sold > 0 THEN 'stock out'
-                WHEN net_items_sold = 0 THEN 'never sold'
-                WHEN velocity_bucket IN (4, 5) THEN 'fast moving'
-                WHEN velocity_bucket = 3 THEN 'moderate'
-                WHEN velocity_bucket IN (1, 2) THEN 'slow moving'
+                WHEN r.net_items_sold = 0 THEN 'never sold'
+                WHEN r.inventory = 0 AND r.net_items_sold > 0 THEN 'stock out'
+                WHEN r.sales_per_day > q.q3 THEN 'fast moving'
+                WHEN r.sales_per_day >= q.q2 THEN 'moderate'
                 ELSE 'slow moving'
             END AS status,
-            CEIL(restock_amount) AS restock_amount
-        FROM final_ranked
-        ORDER BY sales_per_day DESC
+
+            CEIL(r.restock_amount) AS restock_amount
+
+        FROM restock_table r
+        CROSS JOIN quartiles q
+        ORDER BY r.sales_per_day DESC
         """)
 
     result = database.execute(
