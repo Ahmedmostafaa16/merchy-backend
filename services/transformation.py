@@ -93,39 +93,35 @@ def forecast_all_items(
         FROM cte3
 
         ),
-
     ranked AS (
     SELECT
         *,
-        CASE
-            WHEN net_items_sold > 0
-            THEN PERCENT_RANK() OVER (ORDER BY sales_per_day)
-            ELSE NULL
-        END AS velocity_percentile
+        PERCENT_RANK() OVER (ORDER BY sales_per_day) AS velocity_percentile
     FROM restock_table
     )
 
-    SELECT
-        title,
-        size,
-        sku,
-        lifetime,
-        ROUND(sales_per_day::numeric, 2) AS sales_per_day,
-        inventory,
+        SELECT
+            title,
+            size,
+            sku,
+            lifetime,
+            ROUND(sales_per_day::numeric, 2) AS sales_per_day,
+            inventory,
 
-        CASE
-            WHEN inventory = 0 AND net_items_sold > 0 THEN 'stock out'
-            WHEN net_items_sold = 0 THEN 'never sold'
-            WHEN velocity_percentile >= 0.8 THEN 'fast moving'
-            WHEN velocity_percentile >= 0.5 THEN 'moderate'
-            ELSE 'slow moving'
-        END AS status,
+            CASE
+                WHEN inventory = 0 AND net_items_sold > 0 THEN 'stock out'
+                WHEN net_items_sold = 0 THEN 'never sold'
+                WHEN velocity_percentile >= 0.8 THEN 'fast moving'
+                WHEN velocity_percentile >= 0.5 THEN 'moderate'
+                ELSE 'slow moving'
+            END AS status,
 
-        CEIL(restock_amount) AS restock_amount
+            CEIL(restock_amount) AS restock_amount
 
         FROM ranked
         ORDER BY sales_per_day DESC
-    """)
+
+            """)
 
     result = database.execute(
         sql,
