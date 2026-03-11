@@ -97,17 +97,21 @@ def forecast_all_items(
     ranked AS (
     SELECT
         *,
-        PERCENT_RANK() OVER (ORDER BY sales_per_day) AS velocity_percentile
+        CASE
+            WHEN net_items_sold > 0
+            THEN PERCENT_RANK() OVER (ORDER BY sales_per_day)
+            ELSE NULL
+        END AS velocity_percentile
     FROM restock_table
-    WHERE net_items_sold > 0
-)
+    )
 
     SELECT
         title,
         size,
         sku,
         lifetime,
-        round(sales_per_day ::numeric,2) as sales_per_day,inventory,
+        ROUND(sales_per_day::numeric, 2) AS sales_per_day,
+        inventory,
 
         CASE
             WHEN inventory = 0 AND net_items_sold > 0 THEN 'stock out'
@@ -119,8 +123,9 @@ def forecast_all_items(
 
         CEIL(restock_amount) AS restock_amount
 
-    FROM ranked
-    ORDER BY sales_per_day DESC
+        FROM ranked
+        WHERE title IN :items
+        ORDER BY sales_per_day DESC
     """)
 
     result = database.execute(
@@ -211,11 +216,15 @@ def forecast_items(
         ),
 
         ranked AS (
-            SELECT*,
-            PERCENT_RANK() OVER (ORDER BY sales_per_day) AS velocity_percentile
+            SELECT
+                *,
+                CASE
+                    WHEN net_items_sold > 0
+                    THEN PERCENT_RANK() OVER (ORDER BY sales_per_day)
+                    ELSE NULL
+                END AS velocity_percentile
             FROM restock_table
-            WHERE net_items_sold > 0
-            )
+        )
 
         SELECT
             title,
