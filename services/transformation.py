@@ -92,7 +92,7 @@ def forecast_all_items(
             END AS restock_amount
         FROM cte3
 
-                    ),
+        ),
 
     ranked AS (
     SELECT
@@ -124,7 +124,6 @@ def forecast_all_items(
         CEIL(restock_amount) AS restock_amount
 
         FROM ranked
-        WHERE title IN :items
         ORDER BY sales_per_day DESC
     """)
 
