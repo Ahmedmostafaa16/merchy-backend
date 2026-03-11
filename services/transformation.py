@@ -148,16 +148,16 @@ def forecast_items(
 ):
 
     sql = text("""
-    WITH sales2 AS (
-    SELECT
-        shop_id,
-        title,
-        size,
-        sku,
-        SUM(quantity_sold) AS net_items_sold
-    FROM sales
-    WHERE shop_id = :shop_id
-    GROUP BY shop_id, title, size, sku
+        WITH sales2 AS (
+            SELECT
+                shop_id,
+                title,
+                size,
+                sku,
+                SUM(quantity_sold) AS net_items_sold
+            FROM sales
+            WHERE shop_id = :shop_id
+            GROUP BY shop_id, title, size, sku
         ),
 
         main AS (
@@ -211,15 +211,28 @@ def forecast_items(
             FROM cte3
         ),
 
-        ranked AS (
+        quartiles AS (
             SELECT
-                *,
-                CASE
-                    WHEN net_items_sold > 0
-                    THEN PERCENT_RANK() OVER (ORDER BY sales_per_day ASC)
-                    ELSE NULL
-                END AS velocity_percentile
+                percentile_cont(0.50) WITHIN GROUP (ORDER BY sales_per_day) AS q2,
+                percentile_cont(0.75) WITHIN GROUP (ORDER BY sales_per_day) AS q3
             FROM restock_table
+            WHERE net_items_sold > 0
+        ),
+
+        classified AS (
+            SELECT
+                r.*,
+                q.q2,
+                q.q3,
+                CASE
+                    WHEN r.inventory = 0 AND r.net_items_sold > 0 THEN 'stock out'
+                    WHEN r.net_items_sold = 0 THEN 'never sold'
+                    WHEN r.sales_per_day > q.q3 THEN 'fast moving'
+                    WHEN r.sales_per_day >= q.q2 THEN 'moderate'
+                    ELSE 'slow moving'
+                END AS status
+            FROM restock_table r
+            CROSS JOIN quartiles q
         )
 
         SELECT
@@ -227,24 +240,15 @@ def forecast_items(
             size,
             sku,
             lifetime,
-            ROUND(sales_per_day::numeric, 2) AS sales_per_day,
+            ROUND(sales_per_day,2) AS sales_per_day,
             inventory,
-
-            CASE
-                WHEN inventory = 0 AND net_items_sold > 0 THEN 'stock out'
-                WHEN net_items_sold = 0 THEN 'never sold'
-                WHEN velocity_percentile >= 0.8 THEN 'fast moving'
-                WHEN velocity_percentile >= 0.5 THEN 'moderate'
-                ELSE 'slow moving'
-            END AS status,
-
+            status,
             CEIL(restock_amount) AS restock_amount
 
-        FROM ranked
+        FROM classified
         WHERE title IN :items
         ORDER BY sales_per_day DESC
-
-            """)
+        """)
 
     result = database.execute(
         sql,
