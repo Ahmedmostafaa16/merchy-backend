@@ -65,7 +65,6 @@ def forecast_all_items(
                 shop_id,
                 net_items_sold,
                 price,
-
                 CASE
                     WHEN net_items_sold = 0 THEN NULL
                     ELSE ROUND(
@@ -73,9 +72,7 @@ def forecast_all_items(
                         2
                     )
                 END AS lifetime,
-
                 net_items_sold::numeric / :sales_duration AS sales_per_day
-
             FROM main
             WHERE sku IS NOT NULL
         ),
@@ -93,11 +90,21 @@ def forecast_all_items(
             FROM cte3
         ),
 
-        ranked AS (
+        sold_ranked AS (
             SELECT
-                *,
-                NTILE(5) OVER (ORDER BY sales_per_day) AS velocity_bucket
+                sku,
+                NTILE(5) OVER (ORDER BY sales_per_day ASC) AS velocity_bucket
             FROM restock_table
+            WHERE net_items_sold > 0
+        ),
+
+        final_ranked AS (
+            SELECT
+                r.*,
+                s.velocity_bucket
+            FROM restock_table r
+            LEFT JOIN sold_ranked s
+                ON r.sku = s.sku
         )
 
         SELECT
@@ -107,18 +114,16 @@ def forecast_all_items(
             lifetime,
             ROUND(sales_per_day, 2) AS sales_per_day,
             inventory,
-
             CASE
                 WHEN inventory = 0 AND net_items_sold > 0 THEN 'stock out'
                 WHEN net_items_sold = 0 THEN 'never sold'
-                WHEN velocity_bucket >= 4 THEN 'fast moving'
+                WHEN velocity_bucket IN (4, 5) THEN 'fast moving'
                 WHEN velocity_bucket = 3 THEN 'moderate'
+                WHEN velocity_bucket IN (1, 2) THEN 'slow moving'
                 ELSE 'slow moving'
             END AS status,
-
             CEIL(restock_amount) AS restock_amount
-
-        FROM ranked
+        FROM final_ranked
         ORDER BY sales_per_day DESC
         """)
 
