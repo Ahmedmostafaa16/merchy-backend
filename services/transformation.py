@@ -27,92 +27,92 @@ def forecast_all_items(
     """
 
     sql = text("""
-    WITH sales2 AS (
-        SELECT 
-            shop_id,
-            title,
-            size,
-            color,
-            sku,
-            SUM(quantity_sold) AS net_items_sold
-        FROM sales
-        WHERE shop_id = :shop_id
-        GROUP BY shop_id, title, size, color, sku
-    ),
-
-    main AS (
-        SELECT
-            i.title,
-            i.size,
-            i.sku,
-            i.inventory,
-            i.shop_id,
-            i.price,
-            COALESCE(s.net_items_sold, 0) AS net_items_sold
-        FROM inventory i
-        LEFT JOIN sales2 s
-            ON i.sku = s.sku
-           AND i.shop_id = s.shop_id
-        WHERE i.shop_id = :shop_id
-    ),
-
-    cte3 AS (
-        SELECT
-            title,
-            size,
-            sku,
-            inventory,
-            shop_id,
-            net_items_sold,
-            price,
-
-            CASE
-                WHEN net_items_sold = 0 THEN NULL
-                ELSE ROUND(
-                    inventory / (net_items_sold::numeric / :sales_duration),
-                    2
-                )
-            END AS lifetime,
-
-            net_items_sold::numeric / :sales_duration AS sales_per_day
-
-        FROM main
-        WHERE sku IS NOT NULL
-    ),
-
-    restock_table AS (
-        SELECT
-            *,
-            CASE
-                WHEN net_items_sold = 0 THEN :minimum_value
-                ELSE GREATEST(
-                    ((sales_per_day * :restock_days) - inventory),
-                    0
-                )
-            END AS restock_amount
-        FROM cte3
-
+        WITH sales2 AS (
+            SELECT 
+                shop_id,
+                title,
+                size,
+                color,
+                sku,
+                SUM(quantity_sold) AS net_items_sold
+            FROM sales
+            WHERE shop_id = :shop_id
+            GROUP BY shop_id, title, size, color, sku
         ),
-    ranked AS (
-    SELECT
-        *,
-        PERCENT_RANK() OVER (ORDER BY sales_per_day ASC) AS velocity_percentile
-    FROM restock_table
-    )
+
+        main AS (
+            SELECT
+                i.title,
+                i.size,
+                i.sku,
+                i.inventory,
+                i.shop_id,
+                i.price,
+                COALESCE(s.net_items_sold, 0) AS net_items_sold
+            FROM inventory i
+            LEFT JOIN sales2 s
+                ON i.sku = s.sku
+            AND i.shop_id = s.shop_id
+            WHERE i.shop_id = :shop_id
+        ),
+
+        cte3 AS (
+            SELECT
+                title,
+                size,
+                sku,
+                inventory,
+                shop_id,
+                net_items_sold,
+                price,
+
+                CASE
+                    WHEN net_items_sold = 0 THEN NULL
+                    ELSE ROUND(
+                        inventory / (net_items_sold::numeric / :sales_duration),
+                        2
+                    )
+                END AS lifetime,
+
+                net_items_sold::numeric / :sales_duration AS sales_per_day
+
+            FROM main
+            WHERE sku IS NOT NULL
+        ),
+
+        restock_table AS (
+            SELECT
+                *,
+                CASE
+                    WHEN net_items_sold = 0 THEN :minimum_value
+                    ELSE GREATEST(
+                        ((sales_per_day * :restock_days) - inventory),
+                        0
+                    )
+                END AS restock_amount
+            FROM cte3
+        ),
+
+        ranked AS (
+            SELECT
+                *,
+                NTILE(5) OVER (ORDER BY sales_per_day) AS velocity_bucket
+            FROM restock_table
+        )
 
         SELECT
             title,
             size,
             sku,
             lifetime,
-            ROUND(sales_per_day::numeric, 2) AS sales_per_day,
+            ROUND(sales_per_day, 2) AS sales_per_day,
             inventory,
 
             CASE
                 WHEN inventory = 0 AND net_items_sold > 0 THEN 'stock out'
                 WHEN net_items_sold = 0 THEN 'never sold'
-                WHEN velocity_percentile >= 0.8 THEN 'fast moving'
-                WHEN velocity_percentile >= 0.5 THEN 'moderate'
+                WHEN velocity_bucket >= 4 THEN 'fast moving'
+                WHEN velocity_bucket = 3 THEN 'moderate'
                 ELSE 'slow moving'
             END AS status,
 
@@ -120,8 +120,7 @@ def forecast_all_items(
 
         FROM ranked
         ORDER BY sales_per_day DESC
-
-            """)
+        """)
 
     result = database.execute(
         sql,
