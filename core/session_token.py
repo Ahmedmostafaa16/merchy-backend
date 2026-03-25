@@ -87,6 +87,12 @@ def verify_shopify_session_token(
     return shop_domain
 
 
+def get_current_shop(shop_domain: Optional[str] = Depends(verify_shopify_session_token)) -> str:
+    if not shop_domain:
+        _error(status.HTTP_401_UNAUTHORIZED, "invalid session token")
+    return shop_domain
+
+
 def ensure_shop_matches_token(shop_domain: str, token_shop_domain: str) -> None:
     if not token_shop_domain:
         logger.warning(
