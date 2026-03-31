@@ -10,9 +10,8 @@ from dotenv import load_dotenv
 
 
 load_dotenv()
-# SMTP Configuration (Zoho)
-SMTP_SERVER = "smtp.zoho.com"
-SMTP_PORT = 587
+
+
 
 
 def send_email_with_csv(
@@ -35,6 +34,10 @@ def send_email_with_csv(
 
     sender_email = os.getenv("ZOHO_EMAIL")
     sender_password = os.getenv("ZOHO_PASSWORD")
+    
+    with smtplib.SMTP_SSL("smtp.zoho.com", 465, timeout=10) as server :
+        server.login(sender_email, sender_password)
+        server.send_message(msg)
 
     # --- Validation ---
     if not sender_email or not sender_password:
