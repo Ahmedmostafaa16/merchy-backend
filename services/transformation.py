@@ -4,14 +4,25 @@ import csv
 import io
 
 
-def csv_maker(result) -> str:
-    rows = result.fetchall()
-    columns = result.keys()
-    # Build CSV
-    output = io.StringIO() 
+def csv_maker(data):
+
+
+
+    output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(columns)    
-    writer.writerows(rows)
+
+    # header
+    writer.writerow(["title", "size", "sku", "inventory", "lifetime"])
+
+    for row in data:
+        writer.writerow([
+            row["title"],
+            row["size"],
+            row["sku"],
+            row["inventory"],
+            row["lifetime"],
+        ])
+
     return output.getvalue()
 
 def forecast_all_items(
