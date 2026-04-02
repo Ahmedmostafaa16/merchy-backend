@@ -8,7 +8,7 @@ from routers.requests import router as requests_router
 from routers.dashboard import router as dashboard_router
 from routers.api import router as api_router
 from routers.notifications import router as notifications_router
-
+from routers.po import router as po_router
 from routers import jobs
 
 app = FastAPI()
@@ -81,6 +81,7 @@ app.include_router(dashboard_router)
 app.include_router(api_router)
 app.include_router(notifications_router)
 app.include_router(jobs.router)
+app.include_router(po_router)
 
 # ----------------------------
 # Root health check

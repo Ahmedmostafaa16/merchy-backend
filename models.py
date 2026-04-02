@@ -26,10 +26,17 @@ class Shop(Base):
         back_populates="shop",
         cascade="all, delete-orphan"
     )
+
     notifications = relationship(
-    "Notification",
-    back_populates="shop",
-    cascade="all, delete-orphan"
+        "Notification",
+        back_populates="shop",
+        cascade="all, delete-orphan"
+    )
+
+    purchase_orders = relationship(
+        "PurchaseOrder",
+        back_populates="shop",
+        cascade="all, delete-orphan"
     )
 
 
@@ -62,8 +69,8 @@ class Sales(Base):
     created_at = Column(Date, nullable=False, index=True)
 
     shop = relationship("Shop", back_populates="sales_records")
-    
-    
+
+
 class Notification(Base):
     __tablename__ = "notifications"
 
@@ -77,11 +84,59 @@ class Notification(Base):
 
     email = Column(String, nullable=False)
     threshold_days = Column(Integer, nullable=False)
-
     last_sent_at = Column(DateTime(timezone=True), nullable=True)
     is_active = Column(Boolean, default=True)
-
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     shop = relationship("Shop", back_populates="notifications")
-    
+
+
+class PurchaseOrder(Base):
+    __tablename__ = "purchase_orders"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    shop_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("shops.id", ondelete="CASCADE"),
+        nullable=False
+    )
+
+    supplier_name = Column(String, nullable=False)
+    status = Column(String, nullable=False, default="draft")
+    currency = Column(String, nullable=False, default="EGP")
+    total_cost = Column(Numeric(12, 2), nullable=False, default=0)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    due_date = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False
+    )
+
+    shop = relationship("Shop", back_populates="purchase_orders")
+    items = relationship(
+        "POItem",
+        back_populates="purchase_order",
+        cascade="all, delete-orphan"
+    )
+
+
+class POItem(Base):
+    __tablename__ = "po_items"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    po_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("purchase_orders.id", ondelete="CASCADE"),
+        nullable=False
+    )
+
+    sku = Column(String, nullable=False)
+    title = Column(String, nullable=False)
+    quantity = Column(Integer, nullable=False)
+    unit_price = Column(Numeric(12, 2), nullable=False)
+    total_price = Column(Numeric(12, 2), nullable=False)
+
+    purchase_order = relationship("PurchaseOrder", back_populates="items")
