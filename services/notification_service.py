@@ -28,3 +28,15 @@ def upsert_notification(db: Session, shop_domain: str, email: str, threshold_day
     db.refresh(notification)
 
     return notification
+
+
+
+def get_notification_by_shop(db, shop_domain: str):
+
+
+    shop = db.query(Shop).filter_by(shop_domain=shop_domain).first()
+    if not shop:
+        return None
+    notification = db.query(Notification).filter_by(shop_id=shop.id).first()
+    
+    return notification
