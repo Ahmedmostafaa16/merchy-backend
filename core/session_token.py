@@ -1,18 +1,11 @@
 import os
-from typing import Optional
 from urllib.parse import urlparse
-import logging
 
 import jwt
 from jwt import PyJWKClient
-from fastapi import Header, HTTPException, status, Depends
-from sqlalchemy.orm import Session
+from fastapi import Depends, Header, HTTPException, status
 
 from core.config import SHOPIFY_API_KEY, SHOPIFY_API_SECRET
-from core.deps import get_db
-from models import Shop
-
-logger = logging.getLogger(__name__)
 
 
 def _normalize_shop_domain(value: str) -> str:
@@ -28,29 +21,22 @@ def _error(status_code: int, message: str):
 
 
 def verify_shopify_session_token(
-    authorization: Optional[str] = Header(default=None),
-    shop_domain: Optional[str] = None,
-    db: Session = Depends(get_db),
-) -> Optional[str]:
-    if not authorization or not authorization.startswith("Bearer "):
-        if shop_domain:
-            normalized_shop = _normalize_shop_domain(shop_domain)
-            if normalized_shop:
-                store = db.query(Shop).filter(Shop.shop_domain == normalized_shop).first()
-                if store:
-                    logger.warning(
-                        "Session token missing for shop %s; allowing request temporarily.",
-                        normalized_shop,
-                    )
-                    return normalized_shop
-        logger.warning("Session token missing and no valid shop_domain context; allowing request temporarily.")
-        return None
+    authorization: str | None = Header(default=None),
+) -> str:
+    if not authorization:
+        _error(status.HTTP_401_UNAUTHORIZED, "missing session token")
 
-    token = authorization.split(" ", 1)[1].strip()
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token.strip():
+        _error(status.HTTP_401_UNAUTHORIZED, "invalid session token")
+
+    token = token.strip()
 
     try:
         header = jwt.get_unverified_header(token)
         algorithm = header.get("alg", "")
+        if not algorithm:
+            _error(status.HTTP_401_UNAUTHORIZED, "invalid session token")
 
         if algorithm.startswith("RS"):
             jwks_url = os.getenv("SHOPIFY_JWKS_URL", "").strip()
@@ -87,18 +73,10 @@ def verify_shopify_session_token(
     return shop_domain
 
 
-def get_current_shop(shop_domain: Optional[str] = Depends(verify_shopify_session_token)) -> str:
-    if not shop_domain:
-        _error(status.HTTP_401_UNAUTHORIZED, "invalid session token")
+def get_current_shop(shop_domain: str = Depends(verify_shopify_session_token)) -> str:
     return shop_domain
 
 
 def ensure_shop_matches_token(shop_domain: str, token_shop_domain: str) -> None:
-    if not token_shop_domain:
-        logger.warning(
-            "Skipping shop/token match check for shop %s because token auth was bypassed.",
-            _normalize_shop_domain(shop_domain),
-        )
-        return
     if _normalize_shop_domain(shop_domain) != _normalize_shop_domain(token_shop_domain):
         _error(status.HTTP_403_FORBIDDEN, "shop mismatch")

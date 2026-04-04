@@ -9,20 +9,21 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from core.config import (
+    BACKEND_PUBLIC_URL,
+    FRONTEND_APP_URL,
     SHOPIFY_API_KEY,
     SHOPIFY_API_SECRET,
+    SHOPIFY_API_VERSION,
     SCOPES,
-    REDIRECT_URI, )
+    REDIRECT_URI,
+)
 from core.deps import get_db
 from models import Shop
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-FRONTEND_SUCCESS_URL = "https://merchy-frontend-nwbb.vercel.app/install/success"
-
-SHOPIFY_API_VERSION="2026-01"  # Update as needed, but keep consistent across all API calls
-
 STATE_COOKIE = "shopify_oauth_state"
+HOST_COOKIE = "shopify_host"
 STATE_COOKIE_MAX_AGE = 1800  # 30 minutes
 
 
@@ -32,6 +33,16 @@ STATE_COOKIE_MAX_AGE = 1800  # 30 minutes
 
 def normalize_shop(shop: str) -> str:
     return shop.replace("https://", "").replace("http://", "").strip().strip("/")
+
+
+def build_frontend_success_url() -> str:
+    return f"{FRONTEND_APP_URL}/install/success"
+
+
+def require_backend_public_url() -> str:
+    if not BACKEND_PUBLIC_URL:
+        raise RuntimeError("Missing APP_URL or REDIRECT_URI base URL for webhook registration")
+    return BACKEND_PUBLIC_URL
 
 
 def verify_hmac(params: dict, received_hmac: str) -> bool:
@@ -79,10 +90,7 @@ def register_webhook_graphql(shop: str, access_token: str, topic: str, callback_
 
 
 def register_required_webhooks(shop: str, access_token: str, backend_base_url: str):
-    register_webhook_graphql(
-        shop, access_token, "APP_UNINSTALLED",
-        f"{backend_base_url}/webhooks/uninstalled"
-    )
+    register_uninstall_webhook(shop, access_token, backend_base_url)
 
     register_webhook_graphql(
         shop, access_token, "CUSTOMERS_DATA_REQUEST",
@@ -100,29 +108,13 @@ def register_required_webhooks(shop: str, access_token: str, backend_base_url: s
     )
 
 
-def register_uninstall_webhook(shop: str, access_token: str):
-    url = f"https://{shop}/admin/api/2024-01/webhooks.json"
-    payload = {
-        "webhook": {
-            "topic": "app/uninstalled",
-            "address": "https://merchyapp-backend.up.railway.app/webhooks/uninstalled",
-            "format": "json",
-        }
-    }
-    headers = {
-        "X-Shopify-Access-Token": access_token,
-        "Content-Type": "application/json",
-    }
-
-    response = requests.post(url, json=payload, headers=headers, timeout=30)
-
-    if response.ok:
-        print(f"[webhook] uninstall webhook registered for {shop}")
-    else:
-        print(
-            f"[webhook] uninstall webhook registration failed for {shop}: "
-            f"{response.status_code} {response.text}"
-        )
+def register_uninstall_webhook(shop: str, access_token: str, backend_base_url: str):
+    register_webhook_graphql(
+        shop,
+        access_token,
+        "APP_UNINSTALLED",
+        f"{backend_base_url}/webhooks/uninstalled",
+    )
 
 
 # ----------------------------
@@ -130,7 +122,7 @@ def register_uninstall_webhook(shop: str, access_token: str):
 # ----------------------------
 
 @router.get("/install")
-def install(shop: str):
+def install(shop: str, host: str | None = None):
     shop = normalize_shop(shop)
 
     state = secrets.token_urlsafe(24)
@@ -153,6 +145,15 @@ def install(shop: str):
         secure=True,
         samesite="lax",
     )
+    if host:
+        response.set_cookie(
+            key=HOST_COOKIE,
+            value=host,
+            max_age=STATE_COOKIE_MAX_AGE,
+            httponly=True,
+            secure=True,
+            samesite="lax",
+        )
 
     return response
 
@@ -170,6 +171,7 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
     code = params.get("code")
     shop = params.get("shop")
     state = params.get("state")
+    host = params.get("host") or request.cookies.get(HOST_COOKIE)
 
     if not shop or not code or not hmac_received or not state:
         raise HTTPException(status_code=400, detail="Missing shop/code/hmac/state")
@@ -218,15 +220,19 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
 
     db.commit()
 
-    # Register uninstall webhook (non-blocking)
+    # Register required webhooks (non-blocking)
     try:
-        register_uninstall_webhook(shop, access_token)
+        register_required_webhooks(shop, access_token, require_backend_public_url())
     except Exception as e:
-        print(f"[webhook] uninstall webhook registration error for {shop}: {e}")
+        print(f"[webhook] required webhook registration error for {shop}: {e}")
 
     # Redirect to frontend
-    response = RedirectResponse(f"{FRONTEND_SUCCESS_URL}?shop={shop}")
+    query = {"shop": shop}
+    if host:
+        query["host"] = host
+    response = RedirectResponse(f"{build_frontend_success_url()}?{urlencode(query)}")
     response.delete_cookie(STATE_COOKIE)
+    response.delete_cookie(HOST_COOKIE)
 
     return response
 
