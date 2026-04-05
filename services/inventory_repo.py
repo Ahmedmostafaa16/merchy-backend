@@ -39,5 +39,7 @@ def get_sales_period(data_base : Session, shop_id: int):
         .filter(Sales.shop_id == shop_id)
         .scalar()
     )
+    if first_sale is None or last_sale is None:
+        return 0
     dif = last_sale - first_sale
     return dif.days if dif else 0

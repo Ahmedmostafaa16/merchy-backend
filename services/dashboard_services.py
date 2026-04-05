@@ -37,7 +37,7 @@ class DashboardServices:
     
     def average_sales_per_day(self) -> float:
         total_sales_row = (
-            self.data_base.query(func.sum(Sales.quantity_sold))
+            self.data_base.query(func.coalesce(func.sum(Sales.quantity_sold), 0))
             .filter(Sales.shop_id == self.shop_id)
             .first()
         )
