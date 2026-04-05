@@ -45,7 +45,7 @@ def forecast_all_items(
                 size,
                 color,
                 sku,
-                SUM(quantity_sold) AS net_items_sold
+                COALESCE(SUM(quantity_sold), 0) AS net_items_sold
             FROM sales
             WHERE shop_id = :shop_id
             GROUP BY shop_id, title, size, color, sku
@@ -78,14 +78,17 @@ def forecast_all_items(
                 price,
 
                 CASE
-                    WHEN net_items_sold = 0 THEN NULL
+                    WHEN :sales_duration <= 0 OR net_items_sold = 0 THEN NULL
                     ELSE ROUND(
                         inventory / (net_items_sold::numeric / :sales_duration),
                         2
                     )
                 END AS lifetime,
 
-                net_items_sold::numeric / :sales_duration AS sales_per_day
+                CASE
+                    WHEN :sales_duration <= 0 OR net_items_sold = 0 THEN 0
+                    ELSE net_items_sold::numeric / :sales_duration
+                END AS sales_per_day
 
             FROM main
             WHERE sku IS NOT NULL
@@ -165,7 +168,7 @@ def forecast_items(
                 title,
                 size,
                 sku,
-                SUM(quantity_sold) AS net_items_sold
+                COALESCE(SUM(quantity_sold), 0) AS net_items_sold
             FROM sales
             WHERE shop_id = :shop_id
             GROUP BY shop_id, title, size, sku
@@ -196,14 +199,17 @@ def forecast_items(
                 net_items_sold,
 
                 CASE
-                    WHEN net_items_sold = 0 THEN NULL
+                    WHEN :sales_duration <= 0 OR net_items_sold = 0 THEN NULL
                     ELSE ROUND(
                         inventory / (net_items_sold::numeric / :sales_duration),
                         2
                     )
                 END AS lifetime,
 
-                net_items_sold::numeric / :sales_duration AS sales_per_day
+                CASE
+                    WHEN :sales_duration <= 0 OR net_items_sold = 0 THEN 0
+                    ELSE net_items_sold::numeric / :sales_duration
+                END AS sales_per_day
 
             FROM main
             WHERE sku IS NOT NULL

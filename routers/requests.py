@@ -140,10 +140,7 @@ def forecast_all(
         sales_duration = get_sales_period(db, shop.id)
 
         if sales_duration <= 0:
-            raise HTTPException(
-                status_code=400,
-                detail="sales period invalid"
-            )
+            return []
 
         rows = forecast_all_items(
             database=db,
@@ -178,6 +175,8 @@ def customized_report(
 
         # get time range
         time_diff = get_sales_period(db, shop.id)
+        if time_diff <= 0:
+            return []
 
         # build forecast
         rows = forecast_items(
@@ -216,6 +215,8 @@ def export_items_breakdown(
 
     try:
         sales_duration = get_sales_period(db, shop.id)
+        if sales_duration <= 0:
+            return []
 
         breakdown_rows = items_breakdown(
             db,
