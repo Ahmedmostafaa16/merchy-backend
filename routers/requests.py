@@ -5,6 +5,7 @@ now = datetime.now(timezone.utc)
 
 from fastapi import APIRouter, Depends, Request, HTTPException,Query,status
 from fastapi.responses import RedirectResponse, HTMLResponse, StreamingResponse
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from models import Inventory, Shop, Sales
 from core.deps import get_db
@@ -16,6 +17,26 @@ from services.search import search_inventory
 from typing import Annotated
 
 router = APIRouter(prefix="/requests", tags=["requests"])
+
+
+def _no_sales_data_response():
+    return {
+        "error": "NO_SALES_DATA",
+        "message": "No sales data available for the selected period.",
+    }
+
+
+def _shop_has_sales_data(db: Session, shop_id: int, sales_duration: int) -> bool:
+    if sales_duration <= 0:
+        return False
+
+    total_sales = (
+        db.query(func.coalesce(func.sum(Sales.quantity_sold), 0))
+        .filter(Sales.shop_id == shop_id)
+        .scalar()
+    )
+
+    return float(total_sales or 0) > 0
 
 
 
@@ -139,8 +160,8 @@ def forecast_all(
 
         sales_duration = get_sales_period(db, shop.id)
 
-        if sales_duration <= 0:
-            return []
+        if not _shop_has_sales_data(db, shop.id, sales_duration):
+            return _no_sales_data_response()
 
         rows = forecast_all_items(
             database=db,
@@ -175,8 +196,8 @@ def customized_report(
 
         # get time range
         time_diff = get_sales_period(db, shop.id)
-        if time_diff <= 0:
-            return []
+        if not _shop_has_sales_data(db, shop.id, time_diff):
+            return _no_sales_data_response()
 
         # build forecast
         rows = forecast_items(
