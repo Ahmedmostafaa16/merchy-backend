@@ -93,7 +93,7 @@ def register_webhook_graphql(shop: str, access_token: str, topic: str, callback_
 
 
 def register_webhooks(shop: str, access_token: str):
-    print("[WEBHOOK] Starting registration")
+    print("🔥 STARTING WEBHOOK REGISTRATION")
     backend_base_url = require_backend_public_url()
     register_uninstall_webhook(shop, access_token, backend_base_url)
 
@@ -225,11 +225,9 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
 
     db.commit()
 
-    # Register required webhooks before redirecting back to the frontend
-    try:
-        register_webhooks(shop, access_token)
-    except Exception as e:
-        print(f"[webhook] required webhook registration error for {shop}: {e}")
+    print("🔥 CALLBACK REACHED")
+    register_webhooks(shop, access_token)
+    print("🔥 WEBHOOK FUNCTION CALLED")
 
     # Redirect to frontend
     query = {"shop": shop}
