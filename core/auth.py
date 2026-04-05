@@ -72,6 +72,8 @@ def register_webhook_graphql(shop: str, access_token: str, topic: str, callback_
 
     variables = {"topic": topic, "callbackUrl": callback_url}
 
+    print(f"[WEBHOOK] Registering {topic}")
+
     resp = requests.post(
         endpoint,
         json={"query": query, "variables": variables},
@@ -81,6 +83,7 @@ def register_webhook_graphql(shop: str, access_token: str, topic: str, callback_
         },
         timeout=30,
     )
+    print(f"[WEBHOOK] {topic} -> {resp.status_code}")
 
     data = resp.json()
     errors = data.get("data", {}).get("webhookSubscriptionCreate", {}).get("userErrors")
@@ -89,7 +92,9 @@ def register_webhook_graphql(shop: str, access_token: str, topic: str, callback_
         raise RuntimeError(f"Webhook create failed for {topic}: {errors}")
 
 
-def register_required_webhooks(shop: str, access_token: str, backend_base_url: str):
+def register_webhooks(shop: str, access_token: str):
+    print("[WEBHOOK] Starting registration")
+    backend_base_url = require_backend_public_url()
     register_uninstall_webhook(shop, access_token, backend_base_url)
 
     register_webhook_graphql(
@@ -220,9 +225,9 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
 
     db.commit()
 
-    # Register required webhooks (non-blocking)
+    # Register required webhooks before redirecting back to the frontend
     try:
-        register_required_webhooks(shop, access_token, require_backend_public_url())
+        register_webhooks(shop, access_token)
     except Exception as e:
         print(f"[webhook] required webhook registration error for {shop}: {e}")
 
