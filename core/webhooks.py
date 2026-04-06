@@ -2,7 +2,7 @@ import base64
 import hashlib
 import hmac
 
-from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi import APIRouter, Request, HTTPException, Depends, requests
 from sqlalchemy.orm import Session
 
 from core.config import SHOPIFY_API_SECRET
