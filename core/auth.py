@@ -213,9 +213,11 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
     store = db.query(Shop).filter(Shop.shop_domain == shop).first()
 
     if store:
+        print("♻️ Updating existing token")
         store.access_token = access_token
         store.is_active = True
     else:
+        print("🆕 Creating new store")
         store = Shop(
             shop_domain=shop,
             access_token=access_token,
@@ -224,6 +226,7 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
         db.add(store)
 
     db.commit()
+    db.refresh(store)  # 🔥 VERY IMPORTANT
 
     print("🔥 CALLBACK REACHED")
     register_webhooks(shop, access_token)
