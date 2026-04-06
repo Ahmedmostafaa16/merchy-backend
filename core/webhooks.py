@@ -23,17 +23,23 @@ def normalize_shop(shop: str | None) -> str | None:
 
 
 def verify_webhook(data: bytes, hmac_header: str | None) -> bool:
-    if not hmac_header:
+    if not hmac_header or not SHOPIFY_API_SECRET:
         return False
 
-    digest = hmac.new(
-        SHOPIFY_API_SECRET.encode(),
-        data,
-        hashlib.sha256
-    ).digest()
+    computed_hmac = base64.b64encode(
+        hmac.new(
+            SHOPIFY_API_SECRET.encode("utf-8"),
+            data,
+            hashlib.sha256
+        ).digest()
+    ).decode()
 
-    computed_hmac = base64.b64encode(digest).decode()
     return hmac.compare_digest(computed_hmac, hmac_header)
+
+
+def log_webhook_received(topic: str) -> None:
+    print("Webhook received")
+    print("GDPR webhook received:", topic)
 
 
 # ----------------------------
@@ -48,6 +54,8 @@ async def app_uninstalled(request: Request, db: Session = Depends(get_db)):
 
     if not verify_webhook(raw_body, hmac_header):
         raise HTTPException(status_code=401, detail="Webhook HMAC failed")
+
+    print("Webhook received")
 
     shop = normalize_shop(request.headers.get("X-Shopify-Shop-Domain"))
 
@@ -74,9 +82,24 @@ async def customers_data_request(request: Request):
     if not verify_webhook(raw_body, hmac_header):
         raise HTTPException(status_code=401, detail="Webhook HMAC failed")
 
+    log_webhook_received("customers/data_request")
+
     # If you store customer data, you must return it here.
     # If not, simply acknowledge.
 
+    return {"status": "ok"}
+
+
+@router.post("/customers_data_request")
+async def customers_data_request_rest(request: Request):
+
+    raw_body = await request.body()
+    hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
+
+    if not verify_webhook(raw_body, hmac_header):
+        raise HTTPException(status_code=401, detail="Webhook HMAC failed")
+
+    log_webhook_received("customers/data_request")
     return {"status": "ok"}
 
 
@@ -89,8 +112,23 @@ async def customers_redact(request: Request):
     if not verify_webhook(raw_body, hmac_header):
         raise HTTPException(status_code=401, detail="Webhook HMAC failed")
 
+    log_webhook_received("customers/redact")
+
     # Delete/redact customer data here if you store any.
 
+    return {"status": "ok"}
+
+
+@router.post("/customers_redact")
+async def customers_redact_rest(request: Request):
+
+    raw_body = await request.body()
+    hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
+
+    if not verify_webhook(raw_body, hmac_header):
+        raise HTTPException(status_code=401, detail="Webhook HMAC failed")
+
+    log_webhook_received("customers/redact")
     return {"status": "ok"}
 
 
@@ -102,6 +140,30 @@ async def shop_redact(request: Request, db: Session = Depends(get_db)):
 
     if not verify_webhook(raw_body, hmac_header):
         raise HTTPException(status_code=401, detail="Webhook HMAC failed")
+
+    log_webhook_received("shop/redact")
+
+    shop = normalize_shop(request.headers.get("X-Shopify-Shop-Domain"))
+
+    if shop:
+        store = db.query(Shop).filter(Shop.shop_domain == shop).first()
+        if store:
+            store.is_active = False
+            db.commit()
+
+    return {"status": "ok"}
+
+
+@router.post("/shop_redact")
+async def shop_redact_rest(request: Request, db: Session = Depends(get_db)):
+
+    raw_body = await request.body()
+    hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
+
+    if not verify_webhook(raw_body, hmac_header):
+        raise HTTPException(status_code=401, detail="Webhook HMAC failed")
+
+    log_webhook_received("shop/redact")
 
     shop = normalize_shop(request.headers.get("X-Shopify-Shop-Domain"))
 
@@ -128,6 +190,7 @@ async def orders_create(request: Request):
     if not verify_webhook(raw_body, hmac_header):
         raise HTTPException(status_code=401, detail="Webhook HMAC failed")
 
+    print("Webhook received")
     data = await request.json()
     print("New order webhook:", data)
 
