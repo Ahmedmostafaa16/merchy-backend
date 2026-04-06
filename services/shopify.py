@@ -1,20 +1,29 @@
 import requests
 from sqlalchemy.orm import Session
-from models import Inventory,Sales
+from models import Inventory,Sales,Shop
 from dateutil.parser import isoparse
  
 
 
 class Operations:
-    def __init__(self, domain: str, token: str):
-        self.domain = domain
-        self.token = token
-        self.endpoint = f"https://{self.domain}/admin/api/2024-01/graphql.json"
+  
+    def __init__(self, db, domain: str):
+      self.domain = domain
+      self.db = db
 
-        self.headers = {
-            "X-Shopify-Access-Token": self.token,
-            "Content-Type": "application/json"
-        }
+      shop = db.query(Shop).filter(Shop.shop_domain == domain).first()
+
+      if not shop:
+          raise Exception("Shop not found")
+
+      self.token = shop.access_token  # 🔥 ALWAYS FROM DB
+
+      self.endpoint = f"https://{self.domain}/admin/api/2024-01/graphql.json"
+
+      self.headers = {
+          "X-Shopify-Access-Token": self.token,
+          "Content-Type": "application/json"
+      }
 
     # ---------- Internal helper ----------
     def _graphql(self, query: str, variables: dict | None = None):
