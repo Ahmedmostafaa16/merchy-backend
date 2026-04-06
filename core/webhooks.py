@@ -1,8 +1,8 @@
 import base64
 import hashlib
 import hmac
-
-from fastapi import APIRouter, Request, HTTPException, Depends, requests
+import requests
+from fastapi import APIRouter, Request, HTTPException, Depends
 from sqlalchemy.orm import Session
 
 from core.config import SHOPIFY_API_SECRET
