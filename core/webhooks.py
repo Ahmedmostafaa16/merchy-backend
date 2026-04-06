@@ -195,3 +195,16 @@ async def orders_create(request: Request):
     print("New order webhook:", data)
 
     return {"status": "order received"}
+
+@router.get("/debug/list-webhooks")
+def list_webhooks(shop: str, db: Session = Depends(get_db)):
+    store = db.query(Shop).filter(Shop.shop_domain == shop).first()
+
+    res = requests.get(
+        f"https://{shop}/admin/api/2024-01/webhooks.json",
+        headers={
+            "X-Shopify-Access-Token": store.access_token
+        }
+    )
+
+    return res.json()
