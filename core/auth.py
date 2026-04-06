@@ -174,7 +174,7 @@ def install(shop: str, host: str | None = None):
         max_age=STATE_COOKIE_MAX_AGE,
         httponly=True,
         secure=True,
-        samesite="lax",
+        samesite="none",
     )
     if host:
         response.set_cookie(
@@ -183,7 +183,7 @@ def install(shop: str, host: str | None = None):
             max_age=STATE_COOKIE_MAX_AGE,
             httponly=True,
             secure=True,
-            samesite="lax",
+            samesite="none",
         )
 
     return response
