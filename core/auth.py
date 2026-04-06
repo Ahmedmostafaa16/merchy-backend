@@ -205,9 +205,15 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
 
     token_json = token_response.json()
     access_token = token_json.get("access_token")
+    print("🔥 FULL TOKEN RESPONSE:", token_json)
+    print("🔥 ACCESS TOKEN:", access_token)
 
     if not access_token:
         raise HTTPException(status_code=400, detail=f"Token exchange failed: {token_json}")
+
+    if access_token.startswith("shpat_"):
+        print("❌ WRONG TOKEN TYPE - NOT OAUTH")
+        raise Exception("Invalid token type: Custom app token detected. OAuth failed.")
 
     # Save or update shop
     store = db.query(Shop).filter(Shop.shop_domain == shop).first()
@@ -226,6 +232,7 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
         db.add(store)
 
     db.commit()
+    print("✅ TOKEN SAVED TO DB:", access_token)
     db.refresh(store)  # 🔥 VERY IMPORTANT
 
     print("🔥 CALLBACK REACHED")
