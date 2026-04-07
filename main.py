@@ -92,6 +92,9 @@ app.include_router(legal_router)
 
 @app.get("/")
 async def root(request: Request):
+    if "embedded" in request.query_params:
+        return {"status": "ok"}
+
     query = str(request.query_params)
     frontend_url = FRONTEND_APP_URL
 
