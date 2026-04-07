@@ -2,7 +2,7 @@
 
 client_id = "70b22ff11e774dcf49ef9b50c6147654"
 name = "merchyy"
-application_url = "https://merchyapp-backend.up.railway.app/auth/install"
+application_url = "https://merchyapp-backend.up.railway.app"
 embedded = true
 
 [webhooks]
