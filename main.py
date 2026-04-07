@@ -1,9 +1,6 @@
-from pathlib import Path
-
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 
 from core.config import FRONTEND_APP_URL
 from core.auth import router as auth_router
@@ -17,30 +14,6 @@ from routers.legal import router as legal_router
 from routers import jobs
 
 app = FastAPI()
-
-APP_DIR = Path(__file__).resolve().parent
-PROJECT_ROOT = APP_DIR.parent
-
-
-def _resolve_frontend_build_dir() -> Path | None:
-    candidates = [
-        PROJECT_ROOT / "Frontend" / "merchy" / "build",
-        APP_DIR / "Frontend" / "merchy" / "build",
-        PROJECT_ROOT / "build",
-        APP_DIR / "build",
-        Path.cwd() / "Frontend" / "merchy" / "build",
-        Path.cwd() / "build",
-    ]
-
-    for candidate in candidates:
-        if (candidate / "index.html").exists():
-            return candidate
-
-    return None
-
-
-FRONTEND_BUILD_DIR = _resolve_frontend_build_dir()
-FRONTEND_INDEX_FILE = FRONTEND_BUILD_DIR / "index.html" if FRONTEND_BUILD_DIR else None
 
 
 
@@ -113,30 +86,25 @@ app.include_router(jobs.router)
 app.include_router(po_router)
 app.include_router(legal_router)
 
-if FRONTEND_BUILD_DIR and (FRONTEND_BUILD_DIR / "static").exists():
-    app.mount("/static", StaticFiles(directory=FRONTEND_BUILD_DIR / "static"), name="frontend-static")
-
 @app.get("/")
-async def root():
-    if not FRONTEND_INDEX_FILE or not FRONTEND_INDEX_FILE.exists():
-        return JSONResponse(
-            status_code=503,
-            content={"error": "frontend build not found"},
-        )
-    return FileResponse(FRONTEND_INDEX_FILE)
+async def root(request: Request):
+    query = str(request.query_params)
+    frontend_url = FRONTEND_APP_URL
 
+    if query:
+        frontend_url = f"{frontend_url}?{query}"
 
-@app.get("/{full_path:path}")
-async def spa_fallback(full_path: str):
-    if not FRONTEND_BUILD_DIR or not FRONTEND_INDEX_FILE or not FRONTEND_INDEX_FILE.exists():
-        return JSONResponse(
-            status_code=503,
-            content={"error": "frontend build not found"},
-        )
-
-    candidate = FRONTEND_BUILD_DIR / full_path
-
-    if full_path and candidate.exists() and candidate.is_file():
-        return FileResponse(candidate)
-
-    return FileResponse(FRONTEND_INDEX_FILE)
+    return HTMLResponse(f"""
+    <html>
+      <head>
+        <script>
+          if (window.top === window.self) {{
+            window.location.href = "{frontend_url}";
+          }} else {{
+            window.top.location.href = "{frontend_url}";
+          }}
+        </script>
+      </head>
+      <body>Loading...</body>
+    </html>
+    """)
