@@ -91,16 +91,11 @@ app.include_router(legal_router)
 # ----------------------------
 
 @app.get("/")
-def root(shop: str = None, host: str = None):
-    url = f"{FRONTEND_APP_URL}"
+async def root(request: Request):
+    query = str(request.query_params)
+    url = FRONTEND_APP_URL
 
-    params = []
-    if shop:
-        params.append(f"shop={shop}")
-    if host:
-        params.append(f"host={host}")
-
-    if params:
-        url += "?" + "&".join(params)
+    if query:
+        url = f"{url}?{query}"
 
     return RedirectResponse(url)
