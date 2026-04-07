@@ -92,24 +92,23 @@ app.include_router(legal_router)
 
 @app.get("/")
 async def root(request: Request):
-    if "embedded" in request.query_params:
-        return {"status": "ok"}
-
     query = str(request.query_params)
     frontend_url = FRONTEND_APP_URL
 
     if query:
         frontend_url = f"{frontend_url}?{query}"
 
-    html = f"""
+    return HTMLResponse(f"""
     <html>
       <head>
         <script>
-          window.top.location.href = "{frontend_url}";
+          if (window.top === window.self) {{
+            window.location.href = "{frontend_url}";
+          }} else {{
+            window.top.location.href = "{frontend_url}";
+          }}
         </script>
       </head>
-      <body>Redirecting...</body>
+      <body>Loading...</body>
     </html>
-    """
-
-    return HTMLResponse(content=html)
+    """)
