@@ -206,14 +206,9 @@ def register_webhook_rest(shop: str, access_token: str, topic: str, callback_url
         raise RuntimeError(f"Webhook create failed for {topic}: {resp.text}")
 
 
-def register_webhooks(shop: str, access_token: str):
-    print("[WEBHOOK] Starting registration")
+def register_gdpr_webhooks(shop: str, access_token: str):
+    print("[GDPR] Starting registration")
     backend_base_url = require_backend_public_url()
-    register_webhook_graphql(
-        shop, access_token, "APP_UNINSTALLED",
-        f"{backend_base_url}/webhooks/uninstalled"
-    )
-
     register_webhook_rest(
         shop, access_token, "customers/data_request",
         f"{backend_base_url}/webhooks/customers_data_request"
@@ -227,6 +222,14 @@ def register_webhooks(shop: str, access_token: str):
     register_webhook_rest(
         shop, access_token, "shop/redact",
         f"{backend_base_url}/webhooks/shop_redact"
+    )
+
+
+def register_uninstall_webhook(shop: str, access_token: str):
+    backend_base_url = require_backend_public_url()
+    register_webhook_graphql(
+        shop, access_token, "APP_UNINSTALLED",
+        f"{backend_base_url}/webhooks/uninstalled"
     )
 
 
@@ -328,7 +331,8 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
     db.refresh(store)
 
     print("CALLBACK REACHED")
-    register_webhooks(shop, access_token)
+    register_uninstall_webhook(shop, access_token)
+    register_gdpr_webhooks(shop, access_token)
     print("WEBHOOK FUNCTION CALLED")
 
     query = {"shop": shop}
