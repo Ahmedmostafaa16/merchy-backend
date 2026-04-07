@@ -1,6 +1,9 @@
+from pathlib import Path
+
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from core.config import FRONTEND_APP_URL
 from core.auth import router as auth_router
@@ -14,6 +17,9 @@ from routers.legal import router as legal_router
 from routers import jobs
 
 app = FastAPI()
+
+FRONTEND_BUILD_DIR = Path(__file__).resolve().parents[1] / "Frontend" / "merchy" / "build"
+FRONTEND_INDEX_FILE = FRONTEND_BUILD_DIR / "index.html"
 
 
 
@@ -86,29 +92,19 @@ app.include_router(jobs.router)
 app.include_router(po_router)
 app.include_router(legal_router)
 
-# ----------------------------
-# Root health check
-# ----------------------------
+if (FRONTEND_BUILD_DIR / "static").exists():
+    app.mount("/static", StaticFiles(directory=FRONTEND_BUILD_DIR / "static"), name="frontend-static")
 
 @app.get("/")
-async def root(request: Request):
-    query = str(request.query_params)
-    frontend_url = FRONTEND_APP_URL
+async def root():
+    return FileResponse(FRONTEND_INDEX_FILE)
 
-    if query:
-        frontend_url = f"{frontend_url}?{query}"
 
-    return HTMLResponse(f"""
-    <html>
-      <head>
-        <script>
-          if (window.top === window.self) {{
-            window.location.href = "{frontend_url}";
-          }} else {{
-            window.top.location.href = "{frontend_url}";
-          }}
-        </script>
-      </head>
-      <body>Loading...</body>
-    </html>
-    """)
+@app.get("/{full_path:path}")
+async def spa_fallback(full_path: str):
+    candidate = FRONTEND_BUILD_DIR / full_path
+
+    if full_path and candidate.exists() and candidate.is_file():
+        return FileResponse(candidate)
+
+    return FileResponse(FRONTEND_INDEX_FILE)
