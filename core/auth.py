@@ -180,7 +180,7 @@ def register_webhook_graphql(shop: str, access_token: str, topic: str, callback_
 
 
 def register_webhook_rest(shop: str, access_token: str, topic: str, callback_url: str):
-    endpoint = f"https://{shop}/admin/api/2024-01/webhooks.json"
+    endpoint = f"https://{shop}/admin/api/2023-10/webhooks.json"
 
     print(f"[WEBHOOK] Registering {topic}")
 
