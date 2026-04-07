@@ -91,7 +91,16 @@ app.include_router(legal_router)
 # ----------------------------
 
 @app.get("/")
-def root():
-    return RedirectResponse(
-        f"{FRONTEND_APP_URL}?embedded=1"
-    )
+def root(shop: str = None, host: str = None):
+    url = f"{FRONTEND_APP_URL}"
+
+    params = []
+    if shop:
+        params.append(f"shop={shop}")
+    if host:
+        params.append(f"host={host}")
+
+    if params:
+        url += "?" + "&".join(params)
+
+    return RedirectResponse(url)
