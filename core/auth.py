@@ -167,6 +167,10 @@ def register_webhook_graphql(shop: str, access_token: str, topic: str, callback_
         timeout=30,
     )
     print(f"[WEBHOOK] {topic} -> {resp.status_code}")
+    print(f"[WEBHOOK] Response for {topic}: {resp.text}")
+
+    if resp.status_code != 200:
+        raise RuntimeError(f"Webhook create failed for {topic}: {resp.text}")
 
     data = resp.json()
     errors = data.get("data", {}).get("webhookSubscriptionCreate", {}).get("userErrors")
@@ -175,59 +179,27 @@ def register_webhook_graphql(shop: str, access_token: str, topic: str, callback_
         raise RuntimeError(f"Webhook create failed for {topic}: {errors}")
 
 
-def register_webhook_rest(shop: str, access_token: str, topic: str, callback_url: str):
-    endpoint = f"https://{shop}/admin/api/2024-01/webhooks.json"
-
-    print(f"[WEBHOOK] Registering {topic}")
-
-    resp = requests.post(
-        endpoint,
-        json={
-            "webhook": {
-                "topic": topic,
-                "address": callback_url,
-                "format": "json",
-            }
-        },
-        headers={
-            "X-Shopify-Access-Token": access_token,
-            "Content-Type": "application/json",
-        },
-        timeout=30,
-    )
-    print(f"[WEBHOOK] {topic} -> {resp.status_code}")
-
-    if resp.status_code not in (200, 201):
-        raise RuntimeError(f"Webhook create failed for {topic}: {resp.text}")
-
-
 def register_webhooks(shop: str, access_token: str):
     print("[WEBHOOK] Starting registration")
     backend_base_url = require_backend_public_url()
-    register_uninstall_webhook(shop, access_token, backend_base_url)
+    register_webhook_graphql(
+        shop, access_token, "APP_UNINSTALLED",
+        f"{backend_base_url}/webhooks/uninstalled"
+    )
 
-    register_webhook_rest(
-        shop, access_token, "customers/data_request",
+    register_webhook_graphql(
+        shop, access_token, "CUSTOMERS_DATA_REQUEST",
         f"{backend_base_url}/webhooks/customers_data_request"
     )
 
-    register_webhook_rest(
-        shop, access_token, "customers/redact",
+    register_webhook_graphql(
+        shop, access_token, "CUSTOMERS_REDACT",
         f"{backend_base_url}/webhooks/customers_redact"
     )
 
-    register_webhook_rest(
-        shop, access_token, "shop/redact",
-        f"{backend_base_url}/webhooks/shop_redact"
-    )
-
-
-def register_uninstall_webhook(shop: str, access_token: str, backend_base_url: str):
     register_webhook_graphql(
-        shop,
-        access_token,
-        "APP_UNINSTALLED",
-        f"{backend_base_url}/webhooks/uninstalled",
+        shop, access_token, "SHOP_REDACT",
+        f"{backend_base_url}/webhooks/shop_redact"
     )
 
 
