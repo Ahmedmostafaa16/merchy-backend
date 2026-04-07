@@ -39,19 +39,25 @@ def verify_webhook(data: bytes, hmac_header: str | None) -> bool:
     return hmac.compare_digest(computed_hmac, hmac_header)
 
 
-def log_webhook_received(topic: str) -> None:
-    print("Webhook received")
-    print("GDPR webhook received:", topic)
+async def validate_shopify_webhook(request: Request):
+    body = await request.body()
+    hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
 
+    if not hmac_header:
+        return Response(status_code=401)
 
-def _verify_request_hmac(body: bytes, hmac_header: str | None) -> bool:
     digest = hmac.new(
-        SHOPIFY_API_SECRET.encode(),
+        SHOPIFY_API_SECRET.encode("utf-8"),
         body,
         hashlib.sha256
     ).digest()
-    computed = base64.b64encode(digest).decode()
-    return bool(hmac_header) and hmac.compare_digest(computed, hmac_header)
+
+    computed_hmac = base64.b64encode(digest).decode("utf-8")
+
+    if not hmac.compare_digest(computed_hmac, hmac_header):
+        return Response(status_code=401)
+
+    return Response(status_code=200)
 
 
 # ----------------------------
@@ -64,7 +70,7 @@ async def app_uninstalled(request: Request):
     raw_body = await request.body()
     hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
 
-    if not _verify_request_hmac(raw_body, hmac_header):
+    if not verify_webhook(raw_body, hmac_header):
         return Response(status_code=401)
 
     print("Webhook received")
@@ -91,113 +97,32 @@ async def app_uninstalled(request: Request):
 
 @router.post("/customers/data_request")
 async def customers_data_request(request: Request):
-
-    raw_body = await request.body()
-    hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
-
-    if not _verify_request_hmac(raw_body, hmac_header):
-        return Response(status_code=401)
-
-    log_webhook_received("customers/data_request")
-
-    # If you store customer data, you must return it here.
-    # If not, simply acknowledge.
-
-    return Response(status_code=200)
+    return await validate_shopify_webhook(request)
 
 
 @router.post("/customers_data_request")
 async def customers_data_request_rest(request: Request):
-
-    raw_body = await request.body()
-    hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
-
-    if not _verify_request_hmac(raw_body, hmac_header):
-        return Response(status_code=401)
-
-    log_webhook_received("customers/data_request")
-    return Response(status_code=200)
+    return await validate_shopify_webhook(request)
 
 
 @router.post("/customers/redact")
 async def customers_redact(request: Request):
-
-    raw_body = await request.body()
-    hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
-
-    if not _verify_request_hmac(raw_body, hmac_header):
-        return Response(status_code=401)
-
-    log_webhook_received("customers/redact")
-
-    # Delete/redact customer data here if you store any.
-
-    return Response(status_code=200)
+    return await validate_shopify_webhook(request)
 
 
 @router.post("/customers_redact")
 async def customers_redact_rest(request: Request):
-
-    raw_body = await request.body()
-    hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
-
-    if not _verify_request_hmac(raw_body, hmac_header):
-        return Response(status_code=401)
-
-    log_webhook_received("customers/redact")
-    return Response(status_code=200)
+    return await validate_shopify_webhook(request)
 
 
 @router.post("/shop/redact")
 async def shop_redact(request: Request):
-
-    raw_body = await request.body()
-    hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
-
-    if not _verify_request_hmac(raw_body, hmac_header):
-        return Response(status_code=401)
-
-    log_webhook_received("shop/redact")
-
-    shop = normalize_shop(request.headers.get("X-Shopify-Shop-Domain"))
-
-    db = SessionLocal()
-    try:
-        if shop:
-            store = db.query(Shop).filter(Shop.shop_domain == shop).first()
-            if store:
-                store.is_active = False
-                db.commit()
-    finally:
-        db.close()
-
-    return Response(status_code=200)
+    return await validate_shopify_webhook(request)
 
 
 @router.post("/shop_redact")
 async def shop_redact_rest(request: Request):
-
-    raw_body = await request.body()
-    hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
-
-    if not _verify_request_hmac(raw_body, hmac_header):
-        return Response(status_code=401)
-
-    log_webhook_received("shop/redact")
-
-    shop = normalize_shop(request.headers.get("X-Shopify-Shop-Domain"))
-
-    db = SessionLocal()
-    try:
-        if shop:
-            store = db.query(Shop).filter(Shop.shop_domain == shop).first()
-            if store:
-                store.is_active = False
-                db.commit()
-    finally:
-        db.close()
-
-    return Response(status_code=200)
+    return await validate_shopify_webhook(request)
 
 
 # ----------------------------
@@ -211,7 +136,7 @@ async def orders_create(request: Request):
     raw_body = await request.body()
     hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
 
-    if not _verify_request_hmac(raw_body, hmac_header):
+    if not verify_webhook(raw_body, hmac_header):
         return Response(status_code=401)
 
     print("Webhook received")
