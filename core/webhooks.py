@@ -5,6 +5,7 @@ import requests
 from fastapi import APIRouter, Request, HTTPException, Depends
 from sqlalchemy.orm import Session
 
+from core.auth import get_valid_shopify_access_token
 from core.config import SHOPIFY_API_SECRET
 from core.deps import get_db
 from models import Shop
@@ -198,12 +199,12 @@ async def orders_create(request: Request):
 
 @router.get("/debug/list-webhooks")
 def list_webhooks(shop: str, db: Session = Depends(get_db)):
-    store = db.query(Shop).filter(Shop.shop_domain == shop).first()
+    access_token = get_valid_shopify_access_token(db, shop)
 
     res = requests.get(
         f"https://{shop}/admin/api/2024-01/webhooks.json",
         headers={
-            "X-Shopify-Access-Token": store.access_token
+            "X-Shopify-Access-Token": access_token
         }
     )
 

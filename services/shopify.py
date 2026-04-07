@@ -1,5 +1,6 @@
 import requests
 from sqlalchemy.orm import Session
+from core.auth import get_valid_shopify_access_token
 from models import Inventory,Sales
 from dateutil.parser import isoparse
  
@@ -15,6 +16,11 @@ class Operations:
             "X-Shopify-Access-Token": self.token,
             "Content-Type": "application/json"
         }
+
+    @classmethod
+    def from_shop(cls, database: Session, shop_domain: str):
+        access_token = get_valid_shopify_access_token(database, shop_domain)
+        return cls(shop_domain, access_token)
 
     # ---------- Internal helper ----------
     def _graphql(self, query: str, variables: dict | None = None):

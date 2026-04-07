@@ -51,7 +51,7 @@ def weekly_notifications(db: Session = Depends(get_db)):
 
             print(f"[CRON] Syncing sales from {start_date} to {end_date}")
 
-            ops = Operations(shop.shop_domain, shop.access_token)
+            ops = Operations.from_shop(db, shop.shop_domain)
 
             # Delete old sales
             ops.delete_sales(shop.id, db)

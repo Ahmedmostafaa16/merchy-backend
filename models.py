@@ -12,6 +12,9 @@ class Shop(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     shop_domain = Column(String, unique=True, nullable=False)
     access_token = Column(String, nullable=False)
+    access_token_expires_at = Column(DateTime(timezone=True), nullable=True)
+    refresh_token = Column(String, nullable=True)
+    refresh_token_expires_at = Column(DateTime(timezone=True), nullable=True)
     installed_at = Column(DateTime(timezone=True), server_default=func.now())
     is_active = Column(Boolean, default=True)
 

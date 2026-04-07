@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import secrets
+from datetime import datetime, timedelta, timezone
 import requests
 from urllib.parse import urlencode
 
@@ -25,6 +26,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 STATE_COOKIE = "shopify_oauth_state"
 HOST_COOKIE = "shopify_host"
 STATE_COOKIE_MAX_AGE = 1800  # 30 minutes
+TOKEN_REFRESH_BUFFER_SECONDS = 60
 
 
 # ----------------------------
@@ -43,6 +45,87 @@ def require_backend_public_url() -> str:
     if not BACKEND_PUBLIC_URL:
         raise RuntimeError("Missing APP_URL or REDIRECT_URI base URL for webhook registration")
     return BACKEND_PUBLIC_URL
+
+
+def _expiry_datetime_from_seconds(seconds: int | None) -> datetime | None:
+    if not seconds:
+        return None
+    return datetime.now(timezone.utc) + timedelta(seconds=int(seconds))
+
+
+def exchange_oauth_code_for_token(shop: str, code: str) -> dict:
+    token_response = requests.post(
+        f"https://{shop}/admin/oauth/access_token",
+        data={
+            "client_id": SHOPIFY_API_KEY,
+            "client_secret": SHOPIFY_API_SECRET,
+            "code": code,
+            "expiring": "1",
+        },
+        timeout=30,
+    )
+    token_response.raise_for_status()
+    return token_response.json()
+
+
+def refresh_shopify_access_token(shop: str, refresh_token: str) -> dict:
+    token_response = requests.post(
+        f"https://{shop}/admin/oauth/access_token",
+        data={
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": SHOPIFY_API_KEY,
+            "client_secret": SHOPIFY_API_SECRET,
+        },
+        timeout=30,
+    )
+    token_response.raise_for_status()
+    return token_response.json()
+
+
+def save_shop_token_payload(store: Shop, token_payload: dict) -> None:
+    access_token = token_payload.get("access_token")
+    if not access_token:
+        raise HTTPException(status_code=400, detail=f"Token exchange failed: {token_payload}")
+
+    store.access_token = access_token
+    store.access_token_expires_at = _expiry_datetime_from_seconds(token_payload.get("expires_in"))
+    store.refresh_token = token_payload.get("refresh_token")
+    store.refresh_token_expires_at = _expiry_datetime_from_seconds(token_payload.get("refresh_token_expires_in"))
+
+
+def get_valid_shopify_access_token(db: Session, shop_domain: str) -> str:
+    shop = db.query(Shop).filter(Shop.shop_domain == normalize_shop(shop_domain)).first()
+
+    if not shop:
+        raise HTTPException(status_code=404, detail="Shop not found")
+
+    if not shop.access_token_expires_at:
+        return shop.access_token
+
+    now = datetime.now(timezone.utc)
+    expires_at = shop.access_token_expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+
+    if expires_at - timedelta(seconds=TOKEN_REFRESH_BUFFER_SECONDS) > now:
+        return shop.access_token
+
+    if not shop.refresh_token:
+        raise HTTPException(status_code=401, detail="Shopify refresh token missing")
+
+    if shop.refresh_token_expires_at:
+        refresh_expires_at = shop.refresh_token_expires_at
+        if refresh_expires_at.tzinfo is None:
+            refresh_expires_at = refresh_expires_at.replace(tzinfo=timezone.utc)
+        if refresh_expires_at <= now:
+            raise HTTPException(status_code=401, detail="Shopify refresh token expired")
+
+    refreshed_payload = refresh_shopify_access_token(shop.shop_domain, shop.refresh_token)
+    save_shop_token_payload(shop, refreshed_payload)
+    db.commit()
+    db.refresh(shop)
+    return shop.access_token
 
 
 def verify_hmac(params: dict, received_hmac: str) -> bool:
@@ -119,7 +202,7 @@ def register_webhook_rest(shop: str, access_token: str, topic: str, callback_url
 
 
 def register_webhooks(shop: str, access_token: str):
-    print("🔥 STARTING WEBHOOK REGISTRATION")
+    print("[WEBHOOK] Starting registration")
     backend_base_url = require_backend_public_url()
     register_uninstall_webhook(shop, access_token, backend_base_url)
 
@@ -149,7 +232,7 @@ def register_uninstall_webhook(shop: str, access_token: str, backend_base_url: s
 
 
 # ----------------------------
-# Step 1 — Install redirect
+# Step 1 - Install redirect
 # ----------------------------
 
 @router.get("/install")
@@ -190,12 +273,11 @@ def install(shop: str, host: str | None = None):
 
 
 # ----------------------------
-# Step 2 — OAuth callback
+# Step 2 - OAuth callback
 # ----------------------------
 
 @router.get("/callback")
 def shopify_callback(request: Request, db: Session = Depends(get_db)):
-
     params = dict(request.query_params)
 
     hmac_received = params.pop("hmac", None)
@@ -209,63 +291,47 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
 
     shop = normalize_shop(shop)
 
-    # Validate state (CSRF)
     cookie_state = request.cookies.get(STATE_COOKIE)
     if not cookie_state or not hmac.compare_digest(cookie_state, state):
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
 
-    # Verify HMAC
     if not verify_hmac(params, hmac_received):
         raise HTTPException(status_code=400, detail="HMAC validation failed")
 
-    # Exchange code for token
-    token_response = requests.post(
-        f"https://{shop}/admin/oauth/access_token",
-        json={
-            "client_id": SHOPIFY_API_KEY,
-            "client_secret": SHOPIFY_API_SECRET,
-            "code": code,
-        },
-        timeout=30,
-    )
-
-    token_json = token_response.json()
+    token_json = exchange_oauth_code_for_token(shop, code)
     access_token = token_json.get("access_token")
-    print("🔥 FULL TOKEN RESPONSE:", token_json)
-    print("🔥 ACCESS TOKEN:", access_token)
+    print("FULL TOKEN RESPONSE:", token_json)
+    print("ACCESS TOKEN:", access_token)
 
     if not access_token:
         raise HTTPException(status_code=400, detail=f"Token exchange failed: {token_json}")
 
-    if access_token.startswith("shpat_"):
-        print("❌ WRONG TOKEN TYPE - NOT OAUTH")
-        raise Exception("Invalid token type: Custom app token detected. OAuth failed.")
-
-    # Save or update shop
     store = db.query(Shop).filter(Shop.shop_domain == shop).first()
 
     if store:
-        print("♻️ Updating existing token")
-        store.access_token = access_token
+        print("Updating existing token")
+        save_shop_token_payload(store, token_json)
         store.is_active = True
     else:
-        print("🆕 Creating new store")
+        print("Creating new store")
         store = Shop(
             shop_domain=shop,
             access_token=access_token,
+            access_token_expires_at=_expiry_datetime_from_seconds(token_json.get("expires_in")),
+            refresh_token=token_json.get("refresh_token"),
+            refresh_token_expires_at=_expiry_datetime_from_seconds(token_json.get("refresh_token_expires_in")),
             is_active=True
         )
         db.add(store)
 
     db.commit()
-    print("✅ TOKEN SAVED TO DB:", access_token)
-    db.refresh(store)  # 🔥 VERY IMPORTANT
+    print("TOKEN SAVED TO DB:", access_token)
+    db.refresh(store)
 
-    print("🔥 CALLBACK REACHED")
+    print("CALLBACK REACHED")
     register_webhooks(shop, access_token)
-    print("🔥 WEBHOOK FUNCTION CALLED")
+    print("WEBHOOK FUNCTION CALLED")
 
-    # Redirect to frontend
     query = {"shop": shop}
     if host:
         query["host"] = host
@@ -277,7 +343,7 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
 
 
 # ----------------------------
-# Step 3 — Verify install from frontend
+# Step 3 - Verify install from frontend
 # ----------------------------
 
 @router.get("/shops/{shop}")

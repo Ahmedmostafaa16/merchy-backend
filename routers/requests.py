@@ -61,7 +61,7 @@ def sync_inventory(
         "last_updated_at": last_update.isoformat()
     }
     try :     
-        ops = Operations(shop.shop_domain, shop.access_token)
+        ops = Operations.from_shop(db, shop.shop_domain)
         
         ops.delete_inventory(shop.id,db)
         
@@ -102,7 +102,7 @@ def sync_sales(shop_domain: str,
                 "sales_period": sales_period
             }
             
-        ops = Operations(shop.shop_domain, shop.access_token)
+        ops = Operations.from_shop(db, shop.shop_domain)
         ops.delete_sales(shop.id,db)
         rows = ops.get_sales(start_date, end_date)
         sales_rows = [{"shop_id": shop.id, **row} for row in rows]
