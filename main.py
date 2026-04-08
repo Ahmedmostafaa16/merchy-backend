@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.config import FRONTEND_APP_URL
@@ -87,24 +87,5 @@ app.include_router(po_router)
 app.include_router(legal_router)
 
 @app.get("/")
-async def root(request: Request):
-    query = str(request.query_params)
-    frontend_url = FRONTEND_APP_URL
-
-    if query:
-        frontend_url = f"{frontend_url}?{query}"
-
-    return HTMLResponse(f"""
-    <html>
-      <head>
-        <script>
-          if (window.top === window.self) {{
-            window.location.href = "{frontend_url}";
-          }} else {{
-            window.top.location.href = "{frontend_url}";
-          }}
-        </script>
-      </head>
-      <body>Loading...</body>
-    </html>
-    """)
+async def root():
+    return {"status": "ok"}
