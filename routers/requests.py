@@ -3,13 +3,12 @@ from datetime import date, datetime, timedelta, timezone
 import io
 now = datetime.now(timezone.utc)
 
-from fastapi import APIRouter, Depends, Request, HTTPException,Query,status
+from fastapi import APIRouter, Depends, HTTPException,Query,status
 from fastapi.responses import RedirectResponse, HTMLResponse, StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from models import Inventory, Shop, Sales
-from core.deps import get_db
-from core.session_token import ensure_shop_matches_token, verify_shopify_session_token
+from core.deps import get_active_shop, get_db
 from services.shopify import Operations
 from services.inventory_repo import get_last_inventory_update,get_sales_time_range,get_sales_period
 from services.transformation import forecast_all_items, forecast_items, items_breakdown,csv_maker
@@ -41,18 +40,11 @@ def _shop_has_sales_data(db: Session, shop_id: int, sales_duration: int) -> bool
 
 
 
-@router.post("/sync/inventory/{shop_domain}")
+@router.post("/sync/inventory")
 def sync_inventory(
-    shop_domain: str,
+    shop: Shop = Depends(get_active_shop),
     db: Session = Depends(get_db),
-    token_shop_domain: str = Depends(verify_shopify_session_token),
 ):
-    ensure_shop_matches_token(shop_domain, token_shop_domain)
-
-    shop = db.query(Shop).filter(Shop.shop_domain == shop_domain).first()
-
-    if not shop:
-        raise HTTPException(status_code=404, detail="Shop not found")
     last_update = get_last_inventory_update(db, shop.id) 
     if last_update and datetime.now(timezone.utc) - last_update <= timedelta(hours=12):
         return {
@@ -77,18 +69,13 @@ def sync_inventory(
 
     return {"status": "success", "message": f"Inventory synced for shop {shop.shop_domain}"} 
 
-@router.post("/sync/sales/{shop_domain}") 
+@router.post("/sync/sales") 
 
-def sync_sales(shop_domain: str, 
+def sync_sales(
+               shop: Shop = Depends(get_active_shop),
                db: Session = Depends(get_db),
                start_date: date = Query(...), 
-               end_date: date = Query(...),
-               token_shop_domain: str = Depends(verify_shopify_session_token)):
-        ensure_shop_matches_token(shop_domain, token_shop_domain)
-     
-        shop = db.query(Shop).filter(Shop.shop_domain == shop_domain).first()
-        if not shop:
-            raise HTTPException(status_code=404, detail="Shop not found")
+               end_date: date = Query(...)):
         sales_period = get_sales_time_range(db, shop.id)
         if (
             sales_period["min_sales_date"]
@@ -113,16 +100,10 @@ def sync_sales(shop_domain: str,
         
 @router.get("/inventory/search", status_code=status.HTTP_200_OK)
 def inventory_search(
-    shop_domain: str,
     search_query: str,
+    shop: Shop = Depends(get_active_shop),
     db: Session = Depends(get_db),
-    token_shop_domain: str = Depends(verify_shopify_session_token),
                                     ):
-        ensure_shop_matches_token(shop_domain, token_shop_domain)
-    
-        shop = db.query(Shop).filter(Shop.shop_domain == shop_domain).first()
-        if not shop:
-            raise HTTPException(status_code=404, detail="Shop not found")
         if not search_query or len(search_query) < 2:
             return []
 
@@ -139,23 +120,11 @@ def inventory_search(
         
 @router.post("/report", status_code=status.HTTP_200_OK)
 def forecast_all(
-    shop_domain: str,
+    shop: Shop = Depends(get_active_shop),
     db: Session = Depends(get_db),
     number_of_days: int = Query(..., gt=0),
     minimum_value: int = Query(..., gt=0),
-    token_shop_domain: str = Depends(verify_shopify_session_token),
 ):
-
-    ensure_shop_matches_token(shop_domain, token_shop_domain)
-
-    shop = db.query(Shop).filter(Shop.shop_domain == shop_domain).first()
-
-    if not shop:
-        raise HTTPException(
-            status_code=404,
-            detail="shop not found"
-        )
-
     try:
 
         sales_duration = get_sales_period(db, shop.id)
@@ -183,17 +152,10 @@ def forecast_all(
 def customized_report(
     items: Annotated[list[str], Query(...)],
     number_of_days: int,
-    shop_domain: str,
+    shop: Shop = Depends(get_active_shop),
     db: Session = Depends(get_db),minimum_value: int = Query(..., gt=0),
-    token_shop_domain: str = Depends(verify_shopify_session_token),
 ):
-    ensure_shop_matches_token(shop_domain, token_shop_domain)
     try:
-        # get shop id from domain
-        shop = db.query(Shop).filter(Shop.shop_domain == shop_domain).first()
-        if not shop:
-            raise HTTPException(status_code=404, detail="Shop not found")
-
         # get time range
         time_diff = get_sales_period(db, shop.id)
         if not _shop_has_sales_data(db, shop.id, time_diff):
@@ -220,20 +182,10 @@ def customized_report(
     
 @router.get("/breakdown", status_code=status.HTTP_200_OK)
 def export_items_breakdown(
-    shop_domain : str,
+    shop: Shop = Depends(get_active_shop),
     db: Session = Depends(get_db),
     number_of_days: int = Query(..., gt=0),
-    token_shop_domain: str = Depends(verify_shopify_session_token),
 ):
-    ensure_shop_matches_token(shop_domain, token_shop_domain)
-    
-    shop = db.query(Shop).filter(Shop.shop_domain == shop_domain).first()
-    if not shop:
-        raise HTTPException(
-            status_code=404,
-            detail="Shop not found"
-        )
-
     try:
         sales_duration = get_sales_period(db, shop.id)
         if sales_duration <= 0:

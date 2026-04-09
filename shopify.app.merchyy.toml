@@ -1,24 +1,24 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "70b22ff11e774dcf49ef9b50c6147654"
-name = "merchyy"
-application_url = "https://merchyapp-backend.up.railway.app"
+name = "merchy"
+application_url = "https://merchy-frontend-nwbb.vercel.app"
 embedded = true
 
 [webhooks]
 api_version = "2026-04"
 
   [[webhooks.subscriptions]]
-  uri = "/webhooks/customers_data_request"
-  compliance_topics = [ "customers/data_request" ]
+uri = "https://merchyapp-backend.up.railway.app/webhooks/customers_data_request"
+compliance_topics = [ "customers/data_request" ]
 
-  [[webhooks.subscriptions]]
-  uri = "/webhooks/customers_redact"
-  compliance_topics = [ "customers/redact" ]
+[[webhooks.subscriptions]]
+uri = "https://merchyapp-backend.up.railway.app/webhooks/customers_redact"
+compliance_topics = [ "customers/redact" ]
 
-  [[webhooks.subscriptions]]
-  uri = "/webhooks/shop_redact"
-  compliance_topics = [ "shop/redact" ]
+[[webhooks.subscriptions]]
+uri = "https://merchyapp-backend.up.railway.app/webhooks/shop_redact"
+compliance_topics = [ "shop/redact"]
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes

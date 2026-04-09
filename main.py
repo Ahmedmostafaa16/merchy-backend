@@ -12,6 +12,7 @@ from routers.notifications import router as notifications_router
 from routers.po import router as po_router
 from routers.legal import router as legal_router
 from routers import jobs
+from routers.billing import router as billing_router
 
 app = FastAPI()
 
@@ -85,6 +86,7 @@ app.include_router(notifications_router)
 app.include_router(jobs.router)
 app.include_router(po_router)
 app.include_router(legal_router)
+app.include_router(billing_router)
 
 @app.get("/")
 async def root():

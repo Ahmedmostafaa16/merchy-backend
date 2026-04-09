@@ -17,6 +17,9 @@ class Shop(Base):
     refresh_token_expires_at = Column(DateTime(timezone=True), nullable=True)
     installed_at = Column(DateTime(timezone=True), server_default=func.now())
     is_active = Column(Boolean, default=True)
+    subscription_id = Column(String, nullable=True)        # gid://shopify/AppSubscription/123
+    subscription_status = Column(String, nullable=True)    # ACTIVE, PENDING, DECLINED, EXPIRED, FROZEN
+    trial_ends_at = Column(DateTime(timezone=True), nullable=True)
 
     inventory_items = relationship(
         "Inventory",

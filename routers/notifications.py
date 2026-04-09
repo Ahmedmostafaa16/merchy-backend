@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from core.deps import get_db
-from core.session_token import get_current_shop
+from core.deps import get_active_shop, get_db
+from models import Shop
 from schemas.notification_schema import NotificationCreate
 from services.notification_service import upsert_notification,get_notification_by_shop
 
@@ -12,13 +12,13 @@ router = APIRouter(prefix="/notifications", tags=["Notifications"])
 @router.post("")
 def save_notification(
     payload: NotificationCreate,
-    shop_domain: str = Depends(get_current_shop),
+    shop: Shop = Depends(get_active_shop),
     db: Session = Depends(get_db),
 ):
     try:
         notification = upsert_notification(
             db,
-            shop_domain,
+            shop.shop_domain,
             payload.email,
             payload.threshold_days,
         )
@@ -35,11 +35,11 @@ def save_notification(
     
 @router.get("") 
 
-def get_email(shop_domain: str = Depends(get_current_shop),
+def get_email(shop: Shop = Depends(get_active_shop),
               db: Session = Depends(get_db)
                 ):
     
-    notification = get_notification_by_shop(db,shop_domain)
+    notification = get_notification_by_shop(db, shop.shop_domain)
     
     if not notification :
         return  {
