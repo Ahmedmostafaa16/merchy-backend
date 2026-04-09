@@ -21,7 +21,11 @@ def get_active_shop(
 
     store = db.query(Shop).filter(Shop.shop_domain == shop).first()
     if not store:
-        raise HTTPException(status_code=404, detail="Shop not found")
+        raise HTTPException(
+            status_code=307,
+            headers={"Location": f"/auth/install?shop={shop}"},
+            detail="Shop not installed"
+        )
 
     now = datetime.now(timezone.utc)
     in_trial = (
