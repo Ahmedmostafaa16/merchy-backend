@@ -150,7 +150,7 @@ def list_webhooks(shop: str, db: Session = Depends(get_db)):
     access_token = get_valid_shopify_access_token(db, shop)
 
     res = requests.get(
-        f"https://{shop}/admin/api/2024-01/webhooks.json",
+        f"https://{shop}/admin/api/2026-04/webhooks.json",
         headers={
             "X-Shopify-Access-Token": access_token
         }
