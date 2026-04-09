@@ -25,6 +25,7 @@ def get_active_shop(
 
     now = datetime.now(timezone.utc)
     in_trial = (
+        store.subscription_status == "TRIAL" and
         store.trial_ends_at is not None and
         store.trial_ends_at.replace(tzinfo=timezone.utc) > now
     )

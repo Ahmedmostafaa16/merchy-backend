@@ -314,6 +314,10 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
         print("Updating existing token")
         save_shop_token_payload(store, token_json)
         store.is_active = True
+        # Reset trial on reinstall only if no active subscription
+        if not store.subscription_status or store.subscription_status not in ("ACTIVE",):
+            store.subscription_status = "TRIAL"
+            store.trial_ends_at = datetime.now(timezone.utc) + timedelta(days=30)
     else:
         print("Creating new store")
         store = Shop(
@@ -322,9 +326,11 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
             access_token_expires_at=_expiry_datetime_from_seconds(token_json.get("expires_in")),
             refresh_token=token_json.get("refresh_token"),
             refresh_token_expires_at=_expiry_datetime_from_seconds(token_json.get("refresh_token_expires_in")),
-            is_active=True
-        )
-        db.add(store)
+            is_active=True,
+            subscription_status="TRIAL",
+            trial_ends_at=datetime.now(timezone.utc) + timedelta(days=30)
+    )
+    db.add(store)
 
     db.commit()
     print("TOKEN SAVED TO DB:", access_token)

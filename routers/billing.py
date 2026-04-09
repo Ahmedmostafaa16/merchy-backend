@@ -10,8 +10,6 @@ from core.auth import get_valid_shopify_access_token, normalize_shop
 
 SHOPIFY_API_VERSION = "2026-04"
 
-# ─── GraphQL Mutation ────────────────────────────────────────────────────────
-
 CREATE_SUBSCRIPTION_MUTATION = """
 mutation CreateSubscription($name: String!, $price: Decimal!, $returnUrl: String!, $trialDays: Int!) {
   appSubscriptionCreate(
@@ -44,8 +42,6 @@ mutation CreateSubscription($name: String!, $price: Decimal!, $returnUrl: String
 }
 """
 
-# ─── Plan Config ─────────────────────────────────────────────────────────────
-
 PLAN_CONFIG = {
     "basic": {
         "name": "Basic",
@@ -54,8 +50,6 @@ PLAN_CONFIG = {
         "return_url": "https://merchyapp-backend.up.railway.app/billing/callback"
     }
 }
-
-# ─── Reusable GraphQL Runner ─────────────────────────────────────────────────
 
 async def run_graphql(shop_domain: str, access_token: str, query: str, variables: dict):
     url = f"https://{shop_domain}/admin/api/{SHOPIFY_API_VERSION}/graphql.json"
@@ -72,8 +66,6 @@ async def run_graphql(shop_domain: str, access_token: str, query: str, variables
 
     res.raise_for_status()
     return res.json()
-
-# ─── Create Subscription ─────────────────────────────────────────────────────
 
 async def create_subscription(shop_domain: str, access_token: str, plan: str):
     config = PLAN_CONFIG.get(plan)
@@ -102,8 +94,6 @@ async def create_subscription(shop_domain: str, access_token: str, plan: str):
         "subscription": data["appSubscription"]
     }
 
-# ─── Router ──────────────────────────────────────────────────────────────────
-
 router = APIRouter(prefix="/billing", tags=["billing"])
 
 @router.get("/subscribe/{plan}")
@@ -127,8 +117,6 @@ async def subscribe(
 
     # 4. Redirect merchant to Shopify billing approval page
     return RedirectResponse(subscription["confirmation_url"])
-
-# routers/billing.py (add at the bottom)
 
 from models import Shop
 from datetime import datetime, timezone, timedelta
@@ -217,8 +205,6 @@ async def billing_callback(
         return RedirectResponse(
             f"https://merchy-frontend-nwbb.vercel.app/dashboard?billing=declined"
         )
-        
-# routers/billing.py (add at the bottom)
 
 @router.get("/status")
 def billing_status(
@@ -233,24 +219,23 @@ def billing_status(
 
     now = datetime.now(timezone.utc)
 
-    # Check if still in trial
     in_trial = (
+        store.subscription_status == "TRIAL" and
         store.trial_ends_at is not None and
         store.trial_ends_at.replace(tzinfo=timezone.utc) > now
     )
 
-    # Days remaining in trial
+    is_active = store.subscription_status == "ACTIVE"
+
     trial_days_left = None
     if in_trial:
         trial_days_left = (store.trial_ends_at.replace(tzinfo=timezone.utc) - now).days
 
-    is_active = store.subscription_status == "ACTIVE"
-
     return {
         "shop": store.shop_domain,
-        "subscription_status": store.subscription_status,  # ACTIVE / PENDING / DECLINED / None
+        "subscription_status": store.subscription_status,
         "is_active": is_active,
         "in_trial": in_trial,
         "trial_days_left": trial_days_left,
-        "has_access": is_active or in_trial,  # ← use this to gate features
+        "has_access": is_active or in_trial,
     }
