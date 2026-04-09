@@ -1,22 +1,39 @@
 # routers/billing.py
 
+from datetime import datetime, timezone, timedelta
+from urllib.parse import urlencode
+
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
-from core.deps import get_db
-from core.auth import get_valid_shopify_access_token, normalize_shop
+from core.auth import get_valid_shopify_access_token, normalize_shop, verify_hmac
+from core.config import FRONTEND_APP_URL, SHOPIFY_API_VERSION, SHOPIFY_BILLING_TEST
+from core.deps import get_db, get_installed_shop
+from models import Shop
 
-SHOPIFY_API_VERSION = "2026-04"
+PLAN_CONFIG = {
+    "basic": {
+        "name": "Basic",
+        "price": "20.00",
+        "trial_days": 30,
+    }
+}
 
 CREATE_SUBSCRIPTION_MUTATION = """
-mutation CreateSubscription($name: String!, $price: Decimal!, $returnUrl: String!, $trialDays: Int!) {
+mutation CreateSubscription(
+  $name: String!,
+  $price: Decimal!,
+  $returnUrl: URL!,
+  $trialDays: Int!,
+  $test: Boolean!
+) {
   appSubscriptionCreate(
     name: $name
     returnUrl: $returnUrl
     trialDays: $trialDays
-    test: true
+    test: $test
     lineItems: [
       {
         plan: {
@@ -42,14 +59,23 @@ mutation CreateSubscription($name: String!, $price: Decimal!, $returnUrl: String
 }
 """
 
-PLAN_CONFIG = {
-    "basic": {
-        "name": "Basic",
-        "price": "20.00",
-        "trial_days": 30,
-        "return_url": "https://merchyapp-backend.up.railway.app/billing/callback"
+GET_SUBSCRIPTION_QUERY = """
+query GetSubscription($id: ID!) {
+  node(id: $id) {
+    ... on AppSubscription {
+      id
+      name
+      status
+      trialDays
+      currentPeriodEnd
+      createdAt
     }
+  }
 }
+"""
+
+router = APIRouter(prefix="/billing", tags=["billing"])
+
 
 async def run_graphql(shop_domain: str, access_token: str, query: str, variables: dict):
     url = f"https://{shop_domain}/admin/api/{SHOPIFY_API_VERSION}/graphql.json"
@@ -60,17 +86,60 @@ async def run_graphql(shop_domain: str, access_token: str, query: str, variables
             json={"query": query, "variables": variables},
             headers={
                 "X-Shopify-Access-Token": access_token,
-                "Content-Type": "application/json"
-            }
+                "Content-Type": "application/json",
+            },
         )
 
     res.raise_for_status()
     return res.json()
 
-async def create_subscription(shop_domain: str, access_token: str, plan: str):
+
+def _active_trial(store: Shop, now: datetime) -> bool:
+    return (
+        store.trial_ends_at is not None and
+        store.trial_ends_at.replace(tzinfo=timezone.utc) > now
+    )
+
+
+def _billing_status_payload(store: Shop) -> dict:
+    now = datetime.now(timezone.utc)
+    in_trial = _active_trial(store, now)
+    is_active = store.subscription_status == "ACTIVE"
+    effective_status = "ACTIVE" if is_active else "TRIAL" if in_trial else "INACTIVE"
+
+    trial_days_left = None
+    trial_ends_at = None
+    if store.trial_ends_at is not None:
+        trial_ends_at = store.trial_ends_at.replace(tzinfo=timezone.utc).isoformat()
+    if in_trial:
+        trial_days_left = (store.trial_ends_at.replace(tzinfo=timezone.utc) - now).days
+
+    return {
+        "status": effective_status,
+        "trial_ends_at": trial_ends_at,
+        "plan": "basic",
+        "shop": store.shop_domain,
+        "subscription_status": store.subscription_status,
+        "is_active": is_active,
+        "in_trial": in_trial,
+        "trial_days_left": trial_days_left,
+        "has_access": is_active or in_trial,
+    }
+
+
+async def create_subscription(shop_domain: str, access_token: str, plan: str, host: str | None = None):
     config = PLAN_CONFIG.get(plan)
     if not config:
         raise HTTPException(status_code=400, detail="Invalid plan")
+
+    return_params = {"shop": shop_domain}
+    if host:
+        return_params["host"] = host
+
+    return_url = (
+        f"https://merchyapp-backend.up.railway.app/billing/confirm?"
+        f"{urlencode(return_params)}"
+    )
 
     result = await run_graphql(
         shop_domain=shop_domain,
@@ -79,9 +148,10 @@ async def create_subscription(shop_domain: str, access_token: str, plan: str):
         variables={
             "name": config["name"],
             "price": config["price"],
-            "returnUrl": config["return_url"],
-            "trialDays": config["trial_days"]
-        }
+            "returnUrl": return_url,
+            "trialDays": config["trial_days"],
+            "test": SHOPIFY_BILLING_TEST,
+        },
     )
 
     data = result["data"]["appSubscriptionCreate"]
@@ -91,151 +161,124 @@ async def create_subscription(shop_domain: str, access_token: str, plan: str):
 
     return {
         "confirmation_url": data["confirmationUrl"],
-        "subscription": data["appSubscription"]
+        "subscription": data["appSubscription"],
+        "plan": plan,
     }
 
-router = APIRouter(prefix="/billing", tags=["billing"])
+
+@router.post("/create")
+async def create_billing(
+    plan: str = Query(default="basic"),
+    host: str | None = Query(default=None),
+    shop: Shop = Depends(get_installed_shop),
+    db: Session = Depends(get_db),
+):
+    if shop.subscription_status in {"ACTIVE", "PENDING"}:
+        raise HTTPException(status_code=409, detail="Subscription already exists")
+
+    access_token = get_valid_shopify_access_token(db, shop.shop_domain)
+    subscription = await create_subscription(
+        shop_domain=shop.shop_domain,
+        access_token=access_token,
+        plan=plan,
+        host=host,
+    )
+
+    created_subscription = subscription["subscription"]
+    shop.subscription_id = created_subscription.get("id")
+    shop.subscription_status = created_subscription.get("status") or "PENDING"
+    db.commit()
+
+    return {
+        "confirmation_url": subscription["confirmation_url"],
+        "plan": subscription["plan"],
+    }
+
 
 @router.get("/subscribe/{plan}")
 async def subscribe(
     plan: str,
-    shop: str = Query(..., description="mystore.myshopify.com"),
-    db: Session = Depends(get_db)
+    host: str | None = Query(default=None),
+    shop: Shop = Depends(get_installed_shop),
+    db: Session = Depends(get_db),
 ):
-    # 1. Normalize shop domain
-    shop = normalize_shop(shop)
+    if shop.subscription_status in {"ACTIVE", "PENDING"}:
+        raise HTTPException(status_code=409, detail="Subscription already exists")
 
-    # 2. Get valid access token (handles refresh automatically)
-    access_token = get_valid_shopify_access_token(db, shop)
-
-    # 3. Create subscription via Shopify GraphQL
+    access_token = get_valid_shopify_access_token(db, shop.shop_domain)
     subscription = await create_subscription(
-        shop_domain=shop,
+        shop_domain=shop.shop_domain,
         access_token=access_token,
-        plan=plan
+        plan=plan,
+        host=host,
     )
-
-    # 4. Redirect merchant to Shopify billing approval page
     return RedirectResponse(subscription["confirmation_url"])
 
-from models import Shop
-from datetime import datetime, timezone, timedelta
 
-ACTIVATE_SUBSCRIPTION_MUTATION = """
-mutation ActivateSubscription($id: ID!) {
-  appSubscriptionActivate(id: $id) {
-    appSubscription {
-      id
-      status
-      trialDays
-      currentPeriodEnd
-    }
-    userErrors {
-      field
-      message
-    }
-  }
-}
-"""
-
-GET_SUBSCRIPTION_QUERY = """
-query GetSubscription($id: ID!) {
-  node(id: $id) {
-    ... on AppSubscription {
-      id
-      status
-      trialDays
-      currentPeriodEnd
-      createdAt
-    }
-  }
-}
-"""
-
-@router.get("/callback")
-async def billing_callback(
+@router.get("/confirm")
+async def billing_confirm(
+    request: Request,
     shop: str = Query(...),
-    charge_id: str = Query(...),  # Shopify appends this automatically
-    db: Session = Depends(get_db)
+    charge_id: str = Query(...),
+    host: str | None = Query(default=None),
+    db: Session = Depends(get_db),
 ):
-    shop = normalize_shop(shop)
+    params = dict(request.query_params)
+    received_hmac = params.pop("hmac", None)
+    params.pop("signature", None)
+    if not received_hmac or not verify_hmac(params, received_hmac):
+        raise HTTPException(status_code=403, detail="Invalid HMAC")
 
-    # 1. Get valid access token
-    access_token = get_valid_shopify_access_token(db, shop)
+    shop_domain = normalize_shop(shop)
+    access_token = get_valid_shopify_access_token(db, shop_domain)
 
-    # 2. Fetch the subscription details from Shopify
-    # charge_id here is the GID e.g. gid://shopify/AppSubscription/123
     result = await run_graphql(
-        shop_domain=shop,
+        shop_domain=shop_domain,
         access_token=access_token,
         query=GET_SUBSCRIPTION_QUERY,
-        variables={"id": charge_id}
+        variables={"id": charge_id},
     )
 
     subscription = result["data"]["node"]
-
     if not subscription:
         raise HTTPException(status_code=400, detail="Subscription not found")
 
-    status = subscription["status"]  # PENDING, ACTIVE, DECLINED etc.
-
-    # 3. Save to DB regardless of status
-    store = db.query(Shop).filter(Shop.shop_domain == shop).first()
-    if not store:
+    shop_record = db.query(Shop).filter(Shop.shop_domain == shop_domain).first()
+    if not shop_record:
         raise HTTPException(status_code=404, detail="Shop not found")
 
-    store.subscription_id = subscription["id"]
-    store.subscription_status = status
+    external_status = subscription["status"]
+    current_trial_active = _active_trial(shop_record, datetime.now(timezone.utc))
 
-    # 4. Calculate trial_ends_at if applicable
-    if status == "ACTIVE" and subscription.get("trialDays"):
-        store.trial_ends_at = datetime.now(timezone.utc) + timedelta(
-            days=subscription["trialDays"]
-        )
+    shop_record.subscription_id = subscription["id"]
+
+    if external_status == "ACTIVE":
+        shop_record.subscription_status = "ACTIVE"
+        if subscription.get("trialDays"):
+            shop_record.trial_ends_at = datetime.now(timezone.utc) + timedelta(
+                days=subscription["trialDays"]
+            )
+        else:
+            shop_record.trial_ends_at = None
+    elif external_status == "PENDING":
+        shop_record.subscription_status = "PENDING"
+    else:
+        shop_record.subscription_status = "INACTIVE"
+        if not current_trial_active:
+            shop_record.trial_ends_at = None
 
     db.commit()
 
-    # 5. Redirect to frontend with result
-    if status in ("ACTIVE", "PENDING"):
-        return RedirectResponse(
-            f"https://merchy-frontend-nwbb.vercel.app/dashboard?billing=success"
-        )
-    else:
-        # DECLINED or other
-        return RedirectResponse(
-            f"https://merchy-frontend-nwbb.vercel.app/dashboard?billing=declined"
-        )
+    redirect_params = {
+        "shop": shop_domain,
+        "billing": "success" if external_status in {"ACTIVE", "PENDING"} else "declined",
+    }
+    if host:
+        redirect_params["host"] = host
+
+    return RedirectResponse(f"{FRONTEND_APP_URL}/dashboard?{urlencode(redirect_params)}")
+
 
 @router.get("/status")
-def billing_status(
-    shop: str = Query(...),
-    db: Session = Depends(get_db)
-):
-    shop = normalize_shop(shop)
-
-    store = db.query(Shop).filter(Shop.shop_domain == shop).first()
-    if not store:
-        raise HTTPException(status_code=404, detail="Shop not found")
-
-    now = datetime.now(timezone.utc)
-
-    in_trial = (
-        store.subscription_status == "TRIAL" and
-        store.trial_ends_at is not None and
-        store.trial_ends_at.replace(tzinfo=timezone.utc) > now
-    )
-
-    is_active = store.subscription_status == "ACTIVE"
-
-    trial_days_left = None
-    if in_trial:
-        trial_days_left = (store.trial_ends_at.replace(tzinfo=timezone.utc) - now).days
-
-    return {
-        "shop": store.shop_domain,
-        "subscription_status": store.subscription_status,
-        "is_active": is_active,
-        "in_trial": in_trial,
-        "trial_days_left": trial_days_left,
-        "has_access": is_active or in_trial,
-    }
+def billing_status(shop: Shop = Depends(get_installed_shop)):
+    return _billing_status_payload(shop)

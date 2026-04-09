@@ -1,9 +1,12 @@
+from time import perf_counter
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from core.config import FRONTEND_APP_URL
-from core.auth import router as auth_router
+from core.auth import normalize_shop, router as auth_router
+from core.session_token import verify_shopify_session_token
 from core.webhooks import router as webhooks_router
 from routers.requests import router as requests_router
 from routers.dashboard import router as dashboard_router
@@ -42,8 +45,6 @@ app.add_middleware(
 async def http_exception_handler(_: Request, exc: HTTPException):
     if exc.status_code == 401:
         return JSONResponse(status_code=401, content={"error": "invalid session token"})
-    if exc.status_code == 403:
-        return JSONResponse(status_code=403, content={"error": "shop mismatch"})
     if exc.status_code == 500:
         return JSONResponse(status_code=500, content={"error": "server error"})
 
@@ -69,6 +70,38 @@ async def add_shopify_headers(request: Request, call_next):
     response.headers["Content-Security-Policy"] = (
         "frame-ancestors https://*.myshopify.com https://admin.shopify.com;"
     )
+
+    return response
+
+
+def _request_shop_label(request: Request) -> str:
+    query_shop = request.query_params.get("shop")
+    if query_shop:
+        return normalize_shop(query_shop)
+
+    webhook_shop = request.headers.get("X-Shopify-Shop-Domain")
+    if webhook_shop:
+        return normalize_shop(webhook_shop)
+
+    authorization = request.headers.get("Authorization")
+    if authorization:
+        try:
+            return verify_shopify_session_token(authorization)
+        except HTTPException:
+            return "unknown"
+
+    return "unknown"
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    started = perf_counter()
+    shop = _request_shop_label(request)
+    try:
+        response = await call_next(request)
+    finally:
+        elapsed_ms = (perf_counter() - started) * 1000
+        print(f"[SHOP: {shop}] {request.method} {request.url.path} {elapsed_ms:.2f}ms")
 
     return response
 

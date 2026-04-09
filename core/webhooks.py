@@ -82,7 +82,41 @@ async def app_uninstalled(request: Request):
         if shop:
             store = db.query(Shop).filter(Shop.shop_domain == shop).first()
             if store:
-                db.delete(store)
+                store.is_active = False
+                store.subscription_status = "INACTIVE"
+                store.trial_ends_at = None
+                db.commit()
+    finally:
+        db.close()
+
+    return Response(status_code=200)
+
+
+@router.post("/app_subscriptions_update")
+async def app_subscriptions_update(request: Request):
+    raw_body = await request.body()
+    hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
+
+    if not verify_webhook(raw_body, hmac_header):
+        return Response(status_code=401)
+
+    shop = normalize_shop(request.headers.get("X-Shopify-Shop-Domain"))
+    payload = await request.json()
+    subscription = payload.get("app_subscription") or {}
+    subscription_id = subscription.get("admin_graphql_api_id")
+    subscription_status = subscription.get("status")
+
+    db = SessionLocal()
+    try:
+        if shop:
+            store = db.query(Shop).filter(Shop.shop_domain == shop).first()
+            if store:
+                if subscription_id:
+                    store.subscription_id = subscription_id
+                if subscription_status:
+                    store.subscription_status = subscription_status
+                    if subscription_status in {"CANCELLED", "DECLINED", "EXPIRED", "FROZEN"}:
+                        store.trial_ends_at = None
                 db.commit()
     finally:
         db.close()

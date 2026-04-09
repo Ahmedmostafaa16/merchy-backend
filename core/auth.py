@@ -246,6 +246,17 @@ def register_uninstall_webhook(shop: str, access_token: str):
         print(f"[WEBHOOK] APP_UNINSTALLED failed (non-fatal): {e}")
 
 
+def register_billing_update_webhook(shop: str, access_token: str):
+    backend_base_url = require_backend_public_url()
+    try:
+        register_webhook_graphql(
+            shop, access_token, "APP_SUBSCRIPTIONS_UPDATE",
+            f"{backend_base_url}/webhooks/app_subscriptions_update"
+        )
+    except Exception as e:
+        print(f"[WEBHOOK] APP_SUBSCRIPTIONS_UPDATE failed (non-fatal): {e}")
+
+
 # ----------------------------
 # Step 1 - Install redirect
 # ----------------------------
@@ -351,6 +362,7 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
 
     print("CALLBACK REACHED")
     register_uninstall_webhook(shop, access_token)
+    register_billing_update_webhook(shop, access_token)
     register_gdpr_webhooks(shop, access_token)
     print("WEBHOOK FUNCTION CALLED")
 
