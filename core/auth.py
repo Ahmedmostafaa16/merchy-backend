@@ -209,28 +209,41 @@ def register_webhook_rest(shop: str, access_token: str, topic: str, callback_url
 def register_gdpr_webhooks(shop: str, access_token: str):
     print("[GDPR] Starting registration")
     backend_base_url = require_backend_public_url()
-    register_webhook_rest(
-        shop, access_token, "customers/data_request",
-        f"{backend_base_url}/webhooks/customers_data_request"
-    )
 
-    register_webhook_rest(
-        shop, access_token, "customers/redact",
-        f"{backend_base_url}/webhooks/customers_redact"
-    )
+    try:
+        register_webhook_rest(
+            shop, access_token, "customers/data_request",
+            f"{backend_base_url}/webhooks/customers_data_request"
+        )
+    except Exception as e:
+        print(f"[GDPR] customers/data_request failed (non-fatal): {e}")
 
-    register_webhook_rest(
-        shop, access_token, "shop/redact",
-        f"{backend_base_url}/webhooks/shop_redact"
-    )
+    try:
+        register_webhook_rest(
+            shop, access_token, "customers/redact",
+            f"{backend_base_url}/webhooks/customers_redact"
+        )
+    except Exception as e:
+        print(f"[GDPR] customers/redact failed (non-fatal): {e}")
+
+    try:
+        register_webhook_rest(
+            shop, access_token, "shop/redact",
+            f"{backend_base_url}/webhooks/shop_redact"
+        )
+    except Exception as e:
+        print(f"[GDPR] shop/redact failed (non-fatal): {e}")
 
 
 def register_uninstall_webhook(shop: str, access_token: str):
     backend_base_url = require_backend_public_url()
-    register_webhook_graphql(
-        shop, access_token, "APP_UNINSTALLED",
-        f"{backend_base_url}/webhooks/uninstalled"
-    )
+    try:
+        register_webhook_graphql(
+            shop, access_token, "APP_UNINSTALLED",
+            f"{backend_base_url}/webhooks/uninstalled"
+        )
+    except Exception as e:
+        print(f"[WEBHOOK] APP_UNINSTALLED failed (non-fatal): {e}")
 
 
 # ----------------------------
