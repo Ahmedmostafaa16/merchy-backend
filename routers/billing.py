@@ -6,7 +6,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from core.deps import get_db
-from routers.auth import get_valid_shopify_access_token, normalize_shop
+from core.auth import get_valid_shopify_access_token, normalize_shop
 
 SHOPIFY_API_VERSION = "2026-04"
 
