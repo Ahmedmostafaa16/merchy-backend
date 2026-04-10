@@ -106,23 +106,14 @@ def _billing_status_payload(store: Shop) -> dict:
     in_trial = _active_trial(store, now)
     is_active = store.subscription_status == "ACTIVE"
     effective_status = "ACTIVE" if is_active else "TRIAL" if in_trial else "INACTIVE"
-
-    trial_days_left = None
     trial_ends_at = None
     if store.trial_ends_at is not None:
         trial_ends_at = store.trial_ends_at.replace(tzinfo=timezone.utc).isoformat()
-    if in_trial:
-        trial_days_left = (store.trial_ends_at.replace(tzinfo=timezone.utc) - now).days
 
     return {
         "status": effective_status,
         "trial_ends_at": trial_ends_at,
         "plan": "basic",
-        "shop": store.shop_domain,
-        "subscription_status": store.subscription_status,
-        "is_active": is_active,
-        "in_trial": in_trial,
-        "trial_days_left": trial_days_left,
         "has_access": is_active or in_trial,
     }
 
@@ -191,28 +182,7 @@ async def create_billing(
 
     return {
         "confirmation_url": subscription["confirmation_url"],
-        "plan": subscription["plan"],
     }
-
-
-@router.get("/subscribe/{plan}")
-async def subscribe(
-    plan: str,
-    host: str | None = Query(default=None),
-    shop: Shop = Depends(get_installed_shop),
-    db: Session = Depends(get_db),
-):
-    if shop.subscription_status in {"ACTIVE", "PENDING"}:
-        raise HTTPException(status_code=409, detail="Subscription already exists")
-
-    access_token = get_valid_shopify_access_token(db, shop.shop_domain)
-    subscription = await create_subscription(
-        shop_domain=shop.shop_domain,
-        access_token=access_token,
-        plan=plan,
-        host=host,
-    )
-    return RedirectResponse(subscription["confirmation_url"])
 
 
 @router.get("/confirm")
@@ -248,8 +218,6 @@ async def billing_confirm(
         raise HTTPException(status_code=404, detail="Shop not found")
 
     external_status = subscription["status"]
-    current_trial_active = _active_trial(shop_record, datetime.now(timezone.utc))
-
     shop_record.subscription_id = subscription["id"]
 
     if external_status == "ACTIVE":
@@ -262,10 +230,10 @@ async def billing_confirm(
             shop_record.trial_ends_at = None
     elif external_status == "PENDING":
         shop_record.subscription_status = "PENDING"
+        shop_record.trial_ends_at = None
     else:
         shop_record.subscription_status = "INACTIVE"
-        if not current_trial_active:
-            shop_record.trial_ends_at = None
+        shop_record.trial_ends_at = None
 
     db.commit()
 
