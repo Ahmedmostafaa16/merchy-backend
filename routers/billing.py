@@ -9,7 +9,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
 from core.auth import get_valid_shopify_access_token, normalize_shop, verify_hmac
-from core.config import FRONTEND_APP_URL, SHOPIFY_API_VERSION, SHOPIFY_BILLING_TEST
+from core.config import FRONTEND_APP_URL, SCOPES, SHOPIFY_API_VERSION, SHOPIFY_BILLING_TEST
 from core.deps import get_db, get_installed_shop
 from models import Shop
 
@@ -90,8 +90,29 @@ async def run_graphql(shop_domain: str, access_token: str, query: str, variables
             },
         )
 
-    res.raise_for_status()
-    return res.json()
+    request_id = res.headers.get("x-request-id")
+    print("[BILLING] SHOPIFY REQUEST ID:", request_id)
+
+    try:
+        payload = res.json()
+    except ValueError:
+        payload = {"raw_text": res.text}
+
+    print("[BILLING] SHOPIFY HTTP STATUS:", res.status_code)
+    print("[BILLING] SHOPIFY RAW RESPONSE:", payload)
+
+    if res.is_error:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "Shopify GraphQL request failed",
+                "request_id": request_id,
+                "shopify_status": res.status_code,
+                "shopify_response": payload,
+            },
+        )
+
+    return payload
 
 
 def _active_trial(store: Shop, now: datetime) -> bool:
@@ -132,6 +153,13 @@ async def create_subscription(shop_domain: str, access_token: str, plan: str, ho
         f"{urlencode(return_params)}"
     )
 
+    if not return_url.startswith("https://") or "localhost" in return_url.lower():
+        raise HTTPException(status_code=500, detail="Invalid billing return URL configuration")
+
+    print("[BILLING] SHOP:", shop_domain)
+    print("[BILLING] PLAN:", plan)
+    print("[BILLING] RETURN URL:", return_url)
+
     result = await run_graphql(
         shop_domain=shop_domain,
         access_token=access_token,
@@ -145,10 +173,16 @@ async def create_subscription(shop_domain: str, access_token: str, plan: str, ho
         },
     )
 
+    print("[BILLING] FULL SHOPIFY RESPONSE:", result)
+
     data = result["data"]["appSubscriptionCreate"]
+    print("[BILLING] USER ERRORS:", data.get("userErrors"))
 
     if data["userErrors"]:
-        raise HTTPException(status_code=400, detail=data["userErrors"])
+        raise HTTPException(
+            status_code=400,
+            detail=[err.get("message") for err in data.get("userErrors", [])],
+        )
 
     return {
         "confirmation_url": data["confirmationUrl"],
@@ -166,6 +200,9 @@ async def create_billing(
 ):
     if shop.subscription_status in {"ACTIVE", "PENDING"}:
         raise HTTPException(status_code=409, detail="Subscription already exists")
+
+    print("[BILLING] TOKEN TYPE:", "offline" if not shop.access_token_expires_at else "expiring")
+    print("[BILLING] CONFIGURED APP SCOPES:", SCOPES)
 
     access_token = get_valid_shopify_access_token(db, shop.shop_domain)
     subscription = await create_subscription(

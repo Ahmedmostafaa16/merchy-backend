@@ -60,7 +60,6 @@ def exchange_oauth_code_for_token(shop: str, code: str) -> dict:
             "client_id": SHOPIFY_API_KEY,
             "client_secret": SHOPIFY_API_SECRET,
             "code": code,
-            "expiring": "1",
         },
         timeout=30,
     )
