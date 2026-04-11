@@ -188,7 +188,7 @@ def register_webhook_graphql(shop: str, access_token: str, topic: str, callback_
 
 
 def register_webhook_rest(shop: str, access_token: str, topic: str, callback_url: str):
-    endpoint = f"https://{shop}/admin/api/2026-04/webhooks.json"
+    endpoint = f"https://{shop}/admin/api/2024-01/webhooks.json"
 
     print(f"[WEBHOOK] Registering {topic}")
 
@@ -219,29 +219,29 @@ def register_gdpr_webhooks(shop: str, access_token: str):
     backend_base_url = require_backend_public_url()
 
     try:
-        response = register_webhook_graphql(
-            shop, access_token, "CUSTOMERS_DATA_REQUEST",
+        register_webhook_rest(
+            shop, access_token, "customers/data_request",
             f"{backend_base_url}/webhooks/customers_data_request"
         )
-        print("[GDPR] CUSTOMERS_DATA_REQUEST registered:", response)
+        print("[GDPR] customers/data_request registered")
     except Exception as e:
         print(f"[GDPR] customers/data_request failed (non-fatal): {e}")
 
     try:
-        response = register_webhook_graphql(
-            shop, access_token, "CUSTOMERS_REDACT",
+        register_webhook_rest(
+            shop, access_token, "customers/redact",
             f"{backend_base_url}/webhooks/customers_redact"
         )
-        print("[GDPR] CUSTOMERS_REDACT registered:", response)
+        print("[GDPR] customers/redact registered")
     except Exception as e:
         print(f"[GDPR] customers/redact failed (non-fatal): {e}")
 
     try:
-        response = register_webhook_graphql(
-            shop, access_token, "SHOP_REDACT",
+        register_webhook_rest(
+            shop, access_token, "shop/redact",
             f"{backend_base_url}/webhooks/shop_redact"
         )
-        print("[GDPR] SHOP_REDACT registered:", response)
+        print("[GDPR] shop/redact registered")
     except Exception as e:
         print(f"[GDPR] shop/redact failed (non-fatal): {e}")
 
