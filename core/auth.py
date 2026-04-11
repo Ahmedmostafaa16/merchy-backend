@@ -217,33 +217,31 @@ def register_webhook_rest(shop: str, access_token: str, topic: str, callback_url
 def register_gdpr_webhooks(shop: str, access_token: str):
     print("[GDPR] Starting registration")
     backend_base_url = require_backend_public_url()
+    base_url = f"https://{shop}/admin/api/2024-01/webhooks.json"
+    headers = {
+        "X-Shopify-Access-Token": access_token,
+        "Content-Type": "application/json",
+    }
+    topics = [
+        ("customers/data_request", "/webhooks/customers_data_request"),
+        ("customers/redact", "/webhooks/customers_redact"),
+        ("shop/redact", "/webhooks/shop_redact"),
+    ]
 
-    try:
-        register_webhook_rest(
-            shop, access_token, "customers/data_request",
-            f"{backend_base_url}/webhooks/customers_data_request"
-        )
-        print("[GDPR] customers/data_request registered")
-    except Exception as e:
-        print(f"[GDPR] customers/data_request failed (non-fatal): {e}")
+    for topic, path in topics:
+        payload = {
+            "webhook": {
+                "topic": topic,
+                "address": f"{backend_base_url}{path}",
+                "format": "json",
+            }
+        }
 
-    try:
-        register_webhook_rest(
-            shop, access_token, "customers/redact",
-            f"{backend_base_url}/webhooks/customers_redact"
-        )
-        print("[GDPR] customers/redact registered")
-    except Exception as e:
-        print(f"[GDPR] customers/redact failed (non-fatal): {e}")
-
-    try:
-        register_webhook_rest(
-            shop, access_token, "shop/redact",
-            f"{backend_base_url}/webhooks/shop_redact"
-        )
-        print("[GDPR] shop/redact registered")
-    except Exception as e:
-        print(f"[GDPR] shop/redact failed (non-fatal): {e}")
+        try:
+            res = requests.post(base_url, json=payload, headers=headers, timeout=30)
+            print(f"[GDPR] {topic} ->", res.status_code, res.text)
+        except Exception as e:
+            print(f"[GDPR] {topic} failed (non-fatal): {e}")
 
 
 def register_uninstall_webhook(shop: str, access_token: str):
