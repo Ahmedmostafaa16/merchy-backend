@@ -219,26 +219,29 @@ def register_gdpr_webhooks(shop: str, access_token: str):
     backend_base_url = require_backend_public_url()
 
     try:
-        register_webhook_rest(
-            shop, access_token, "customers/data_request",
+        response = register_webhook_graphql(
+            shop, access_token, "CUSTOMERS_DATA_REQUEST",
             f"{backend_base_url}/webhooks/customers_data_request"
         )
+        print("[GDPR] CUSTOMERS_DATA_REQUEST registered:", response)
     except Exception as e:
         print(f"[GDPR] customers/data_request failed (non-fatal): {e}")
 
     try:
-        register_webhook_rest(
-            shop, access_token, "customers/redact",
+        response = register_webhook_graphql(
+            shop, access_token, "CUSTOMERS_REDACT",
             f"{backend_base_url}/webhooks/customers_redact"
         )
+        print("[GDPR] CUSTOMERS_REDACT registered:", response)
     except Exception as e:
         print(f"[GDPR] customers/redact failed (non-fatal): {e}")
 
     try:
-        register_webhook_rest(
-            shop, access_token, "shop/redact",
+        response = register_webhook_graphql(
+            shop, access_token, "SHOP_REDACT",
             f"{backend_base_url}/webhooks/shop_redact"
         )
+        print("[GDPR] SHOP_REDACT registered:", response)
     except Exception as e:
         print(f"[GDPR] shop/redact failed (non-fatal): {e}")
 
