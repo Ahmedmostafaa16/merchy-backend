@@ -222,23 +222,23 @@ def register_gdpr_webhooks(shop: str, access_token: str):
         "Content-Type": "application/json",
     }
     topics = [
-        ("customers/data_request", "/webhooks/customers_data_request"),
-        ("customers/redact", "/webhooks/customers_redact"),
-        ("shop/redact", "/webhooks/shop_redact"),
+        "customers/data_request",
+        "customers/redact",
+        "shop/redact",
     ]
 
-    for topic, path in topics:
+    for topic in topics:
         payload = {
             "webhook": {
                 "topic": topic,
-                "address": f"https://merchyapp-backend.up.railway.app{path}",
+                "address": f"https://merchyapp-backend.up.railway.app/webhooks/{topic.replace('/', '_')}",
                 "format": "json",
             }
         }
 
         try:
-            response = requests.post(url, json=payload, headers=headers, timeout=30)
-            print(f"[GDPR] {topic} ->", response.status_code, response.text)
+            response = requests.post(url, json=payload, headers=headers)
+            print("GDPR:", topic, response.status_code, response.text)
         except Exception as e:
             print(f"[GDPR] {topic} failed (non-fatal): {e}")
 
