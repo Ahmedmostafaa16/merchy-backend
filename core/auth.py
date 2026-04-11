@@ -216,7 +216,7 @@ def register_webhook_rest(shop: str, access_token: str, topic: str, callback_url
 
 def register_gdpr_webhooks(shop: str, access_token: str):
     print("[GDPR] Starting registration")
-    url = f"https://{shop}/admin/api/2024-01/webhooks.json"
+    url = f"https://{shop}/admin/api/2025-01/webhooks.json"
     headers = {
         "X-Shopify-Access-Token": access_token,
         "Content-Type": "application/json",
