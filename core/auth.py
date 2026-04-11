@@ -370,9 +370,10 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
     db.refresh(store)
 
     print("CALLBACK REACHED")
-    register_uninstall_webhook(shop, access_token)
-    register_billing_update_webhook(shop, access_token)
-    register_gdpr_webhooks(shop, access_token)
+    stored_token = store.access_token
+    register_uninstall_webhook(shop, stored_token)
+    register_billing_update_webhook(shop, stored_token)
+    register_gdpr_webhooks(shop, stored_token)
     print("WEBHOOK FUNCTION CALLED")
 
     query = {"shop": shop}
