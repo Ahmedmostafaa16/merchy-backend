@@ -216,8 +216,7 @@ def register_webhook_rest(shop: str, access_token: str, topic: str, callback_url
 
 def register_gdpr_webhooks(shop: str, access_token: str):
     print("[GDPR] Starting registration")
-    backend_base_url = require_backend_public_url()
-    base_url = f"https://{shop}/admin/api/2024-01/webhooks.json"
+    url = f"https://{shop}/admin/api/2024-01/webhooks.json"
     headers = {
         "X-Shopify-Access-Token": access_token,
         "Content-Type": "application/json",
@@ -232,14 +231,14 @@ def register_gdpr_webhooks(shop: str, access_token: str):
         payload = {
             "webhook": {
                 "topic": topic,
-                "address": f"{backend_base_url}{path}",
+                "address": f"https://merchyapp-backend.up.railway.app{path}",
                 "format": "json",
             }
         }
 
         try:
-            res = requests.post(base_url, json=payload, headers=headers, timeout=30)
-            print(f"[GDPR] {topic} ->", res.status_code, res.text)
+            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            print(f"[GDPR] {topic} ->", response.status_code, response.text)
         except Exception as e:
             print(f"[GDPR] {topic} failed (non-fatal): {e}")
 
