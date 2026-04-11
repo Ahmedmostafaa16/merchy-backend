@@ -22,9 +22,13 @@ compliance_topics = [ "shop/redact"]
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_orders,read_products,write_own_subscription_contracts"
+scopes = "read_orders,read_products"
 optional_scopes = [ ]
 use_legacy_install_flow = false
 
 [auth]
 redirect_urls = [ "https://merchyapp-backend.up.railway.app/auth/callback" ]
+
+[access_token]
+expiring=true
+
