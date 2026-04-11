@@ -64,32 +64,45 @@ async def validate_shopify_webhook(request: Request):
 # App uninstall webhook
 # ----------------------------
 
-@router.post("/uninstalled")
-async def app_uninstalled(request: Request):
-
+async def _handle_app_uninstalled(request: Request, db: Session):
     raw_body = await request.body()
     hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
 
     if not verify_webhook(raw_body, hmac_header):
         return Response(status_code=401)
 
-    print("Webhook received")
+    payload = await request.json()
+    shop = normalize_shop(
+        payload.get("myshopify_domain")
+        or request.headers.get("X-Shopify-Shop-Domain")
+    )
 
-    shop = normalize_shop(request.headers.get("X-Shopify-Shop-Domain"))
+    print("[WEBHOOK] uninstall received for:", shop)
 
-    db = SessionLocal()
-    try:
-        if shop:
-            store = db.query(Shop).filter(Shop.shop_domain == shop).first()
-            if store:
-                store.is_active = False
-                store.subscription_status = "INACTIVE"
-                store.trial_ends_at = None
-                db.commit()
-    finally:
-        db.close()
+    if shop:
+        store = db.query(Shop).filter(Shop.shop_domain == shop).first()
+        if store:
+            store.is_active = False
+            store.subscription_status = "INACTIVE"
+            store.subscription_id = None
+            store.trial_ends_at = None
+            store.access_token = ""
+            store.access_token_expires_at = None
+            store.refresh_token = None
+            store.refresh_token_expires_at = None
+            db.commit()
 
-    return Response(status_code=200)
+    return {"status": "ok"}
+
+
+@router.post("/app-uninstalled")
+async def app_uninstalled(request: Request, db: Session = Depends(get_db)):
+    return await _handle_app_uninstalled(request, db)
+
+
+@router.post("/uninstalled")
+async def app_uninstalled_legacy(request: Request, db: Session = Depends(get_db)):
+    return await _handle_app_uninstalled(request, db)
 
 
 @router.post("/app_subscriptions_update")

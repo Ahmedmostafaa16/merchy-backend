@@ -141,10 +141,10 @@ def register_webhook_graphql(shop: str, access_token: str, topic: str, callback_
     endpoint = f"https://{shop}/admin/api/{SHOPIFY_API_VERSION}/graphql.json"
 
     query = """
-    mutation webhookSubscriptionCreate($topic: WebhookSubscriptionTopic!, $callbackUrl: URL!) {
+    mutation webhookSubscriptionCreate($topic: WebhookSubscriptionTopic!, $webhookSubscription: WebhookSubscriptionInput!) {
       webhookSubscriptionCreate(
         topic: $topic,
-        webhookSubscription: { callbackUrl: $callbackUrl, format: JSON }
+        webhookSubscription: $webhookSubscription
       ) {
         webhookSubscription { id }
         userErrors { field message }
@@ -152,7 +152,13 @@ def register_webhook_graphql(shop: str, access_token: str, topic: str, callback_
     }
     """
 
-    variables = {"topic": topic, "callbackUrl": callback_url}
+    variables = {
+        "topic": topic,
+        "webhookSubscription": {
+            "callbackUrl": callback_url,
+            "format": "JSON",
+        },
+    }
 
     print(f"[WEBHOOK] Registering {topic}")
 
@@ -176,6 +182,8 @@ def register_webhook_graphql(shop: str, access_token: str, topic: str, callback_
 
     if errors:
         raise RuntimeError(f"Webhook create failed for {topic}: {errors}")
+
+    return data
 
 
 def register_webhook_rest(shop: str, access_token: str, topic: str, callback_url: str):
@@ -237,10 +245,11 @@ def register_gdpr_webhooks(shop: str, access_token: str):
 def register_uninstall_webhook(shop: str, access_token: str):
     backend_base_url = require_backend_public_url()
     try:
-        register_webhook_graphql(
+        response = register_webhook_graphql(
             shop, access_token, "APP_UNINSTALLED",
-            f"{backend_base_url}/webhooks/uninstalled"
+            f"{backend_base_url}/webhooks/app-uninstalled"
         )
+        print("Webhook registered:", response)
     except Exception as e:
         print(f"[WEBHOOK] APP_UNINSTALLED failed (non-fatal): {e}")
 
