@@ -2,13 +2,12 @@ import base64
 import hashlib
 import hmac
 import requests
-from fastapi import APIRouter, Request, Response, Depends
+from fastapi import APIRouter, HTTPException, Request, Response, Depends
 from sqlalchemy.orm import Session
 
 from core.auth import get_valid_shopify_access_token
 from core.config import SHOPIFY_API_SECRET
 from core.deps import get_db
-from db import SessionLocal
 from models import Shop
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
@@ -106,35 +105,45 @@ async def app_uninstalled_legacy(request: Request, db: Session = Depends(get_db)
 
 
 @router.post("/app_subscriptions_update")
-async def app_subscriptions_update(request: Request):
-    raw_body = await request.body()
+async def app_subscriptions_update(
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    body = await request.body()
     hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
 
-    if not verify_webhook(raw_body, hmac_header):
-        return Response(status_code=401)
+    if not verify_webhook(body, hmac_header):
+        raise HTTPException(status_code=401, detail="Invalid webhook HMAC")
 
-    shop = normalize_shop(request.headers.get("X-Shopify-Shop-Domain"))
     payload = await request.json()
-    subscription = payload.get("app_subscription") or {}
-    subscription_id = subscription.get("admin_graphql_api_id")
-    subscription_status = subscription.get("status")
 
-    db = SessionLocal()
-    try:
-        if shop:
-            store = db.query(Shop).filter(Shop.shop_domain == shop).first()
-            if store:
-                if subscription_id:
-                    store.subscription_id = subscription_id
-                if subscription_status:
-                    store.subscription_status = subscription_status
-                    if subscription_status in {"CANCELLED", "DECLINED", "EXPIRED", "FROZEN"}:
-                        store.trial_ends_at = None
-                db.commit()
-    finally:
-        db.close()
+    shop_domain = normalize_shop(request.headers.get("X-Shopify-Shop-Domain"))
+    if not shop_domain:
+        raise HTTPException(status_code=400, detail="Missing shop domain")
 
-    return Response(status_code=200)
+    store = db.query(Shop).filter(Shop.shop_domain == shop_domain).first()
+    if not store:
+        raise HTTPException(status_code=404, detail="Shop not found")
+
+    subscription = payload.get("app_subscription") or payload
+    status = subscription.get("status")
+    subscription_id = subscription.get("admin_graphql_api_id") or subscription.get("id")
+
+    print("[WEBHOOK] app_subscriptions_update received for:", shop_domain)
+    print("[WEBHOOK] subscription status:", status)
+
+    if status:
+        store.subscription_status = status.upper()
+
+    if subscription_id:
+        store.subscription_id = subscription_id
+
+    if store.subscription_status in {"CANCELLED", "DECLINED", "EXPIRED", "FROZEN", "INACTIVE"}:
+        store.trial_ends_at = None
+
+    db.commit()
+
+    return {"ok": True}
 
 
 # ----------------------------
