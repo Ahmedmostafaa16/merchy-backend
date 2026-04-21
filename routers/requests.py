@@ -45,25 +45,77 @@ def sync_inventory(
     shop: Shop = Depends(get_active_shop),
     db: Session = Depends(get_db),
 ):
-    last_update = get_last_inventory_update(db, shop.id) 
-    if last_update and datetime.now(timezone.utc) - last_update <= timedelta(hours=12):
+    import traceback
+
+    try:
+        last_update = get_last_inventory_update(db, shop.id)
+        if last_update and datetime.now(timezone.utc) - last_update <= timedelta(hours=12):
+            return {
+                "status": "skipped",
+                "reason": "Inventory already available",
+                "last_updated_at": last_update.isoformat()
+            }
+    except Exception:
+        traceback.print_exc()
+        db.rollback()
         return {
-        "status": "skipped",
-        "reason": "Inventory already available",
-        "last_updated_at": last_update.isoformat()
-    }
-    try :     
+            "status": "error",
+            "message": "Inventory sync failed"
+        }
+
+    try:
         ops = Operations.from_shop(db, shop.shop_domain)
-        
-        ops.delete_inventory(shop.id,db)
-        
-        rows = ops.get_inventory() 
-        inventory_rows = [{"shop_id": shop.id, **row} for row in rows]
+        rows = ops.get_inventory() or []
+    except Exception:
+        traceback.print_exc()
+        db.rollback()
+        return {
+            "status": "error",
+            "message": "Inventory sync failed"
+        }
+
+    try:
+        if not rows:
+            return {
+                "status": "empty",
+                "message": "No inventory data found"
+            }
+
+        inventory_rows = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+
+            try:
+                inventory_quantity = int(row.get("inventory") or 0)
+            except (TypeError, ValueError):
+                inventory_quantity = 0
+
+            inventory_rows.append({
+                "shop_id": shop.id,
+                "title": (row.get("title") or "")[:200],
+                "size": (row.get("size") or "")[:30],
+                "sku": (row.get("sku") or "")[:30],
+                "inventory": inventory_quantity,
+                "price": row.get("price"),
+            })
+
+        if not inventory_rows:
+            return {
+                "status": "empty",
+                "message": "No inventory data found"
+            }
+
+        ops.delete_inventory(shop.id, db)
         db.bulk_insert_mappings(Inventory, inventory_rows)
         db.commit()
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception:
+        traceback.print_exc()
+        db.rollback()
+        return {
+            "status": "error",
+            "message": "Inventory sync failed"
+        }
     
 
 

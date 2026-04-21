@@ -6,16 +6,23 @@ embedded = true
 [webhooks]
 api_version = "2026-04"
 
-[[webhooks.subscriptions]]
-topics = ["app_subscriptions/update"]
-uri = "https://merchyapp-backend.up.railway.app/webhooks/app_subscriptions_update"
-
+# App uninstall
 [[webhooks.subscriptions]]
 topics = ["app/uninstalled"]
 uri = "https://merchyapp-backend.up.railway.app/webhooks"
 
+# Subscription updates
 [[webhooks.subscriptions]]
-compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
+topics = ["app_subscriptions/update"]
+uri = "https://merchyapp-backend.up.railway.app/webhooks"
+
+# GDPR compliance (MANDATORY)
+[[webhooks.subscriptions]]
+compliance_topics = [
+  "customers/data_request",
+  "customers/redact",
+  "shop/redact"
+]
 uri = "https://merchyapp-backend.up.railway.app/webhooks"
 
 [access_scopes]
