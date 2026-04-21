@@ -1,5 +1,3 @@
-# Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
-
 client_id = "70b22ff11e774dcf49ef9b50c6147654"
 name = "merchy"
 application_url = "https://merchy-frontend-nwbb.vercel.app"
@@ -8,29 +6,20 @@ embedded = true
 [webhooks]
 api_version = "2026-04"
 
-  [[webhooks.subscriptions]]
-uri = "https://merchyapp-backend.up.railway.app/webhooks/customers_data_request"
-compliance_topics = [ "customers/data_request" ]
-
-[[webhooks.subscriptions]]
-uri = "https://merchyapp-backend.up.railway.app/webhooks/customers_redact"
-compliance_topics = [ "customers/redact" ]
-
-[[webhooks.subscriptions]]
-uri = "https://merchyapp-backend.up.railway.app/webhooks/shop_redact"
-compliance_topics = [ "shop/redact"]
-
 [[webhooks.subscriptions]]
 topics = ["app_subscriptions/update"]
 uri = "https://merchyapp-backend.up.railway.app/webhooks/app_subscriptions_update"
 
+[[webhooks.subscriptions]]
+topics = ["app/uninstalled"]
+uri = "https://merchyapp-backend.up.railway.app/webhooks"
+
+[[webhooks.subscriptions]]
+compliance_topics = ["customers/data_request", "customers/redact", "shop/redact"]
+uri = "https://merchyapp-backend.up.railway.app/webhooks"
+
 [access_scopes]
-# Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "read_orders,read_products,read_customers"
-optional_scopes = [ ]
-use_legacy_install_flow = false 
+scopes = "read_orders,read_products"
 
 [auth]
-redirect_urls = [ "https://merchyapp-backend.up.railway.app/auth/callback" ]
-
-
+redirect_urls = ["https://merchyapp-backend.up.railway.app/auth/callback"]

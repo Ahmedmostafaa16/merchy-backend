@@ -1,11 +1,11 @@
 import base64
 import hashlib
 import hmac
-import requests
-from fastapi import APIRouter, HTTPException, Request, Response, Depends
+import json
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
-from core.auth import get_valid_shopify_access_token
 from core.config import SHOPIFY_API_SECRET
 from core.deps import get_db
 from models import Shop
@@ -13,203 +13,182 @@ from models import Shop
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
 
-# ----------------------------
-# Helpers
-# ----------------------------
-
 def normalize_shop(shop: str | None) -> str | None:
     if not shop:
         return None
-    return shop.replace("https://", "").replace("http://", "").strip().strip("/")
+    return shop.replace("https://", "").replace("http://", "").strip().strip("/").lower()
 
 
-def verify_webhook(data: bytes, hmac_header: str | None) -> bool:
+def verify_webhook(raw_body: bytes, hmac_header: str | None) -> bool:
     if not hmac_header or not SHOPIFY_API_SECRET:
         return False
 
     computed_hmac = base64.b64encode(
         hmac.new(
             SHOPIFY_API_SECRET.encode("utf-8"),
-            data,
-            hashlib.sha256
+            raw_body,
+            hashlib.sha256,
         ).digest()
-    ).decode()
+    ).decode("utf-8")
 
     return hmac.compare_digest(computed_hmac, hmac_header)
 
 
-async def validate_shopify_webhook(request: Request):
-    body = await request.body()
-    hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
-
-    if not hmac_header:
-        return Response(status_code=401)
-
-    digest = hmac.new(
-        SHOPIFY_API_SECRET.encode("utf-8"),
-        body,
-        hashlib.sha256
-    ).digest()
-
-    computed_hmac = base64.b64encode(digest).decode("utf-8")
-
-    if not hmac.compare_digest(computed_hmac, hmac_header):
-        return Response(status_code=401)
-
-    return Response(status_code=200)
-
-
-# ----------------------------
-# App uninstall webhook
-# ----------------------------
-
-async def _handle_app_uninstalled(request: Request, db: Session):
+async def read_verified_webhook(request: Request) -> tuple[bytes, dict, str | None, str | None]:
     raw_body = await request.body()
     hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
 
     if not verify_webhook(raw_body, hmac_header):
-        return Response(status_code=401)
+        raise HTTPException(status_code=400, detail="Invalid webhook HMAC")
 
-    payload = await request.json()
-    shop = normalize_shop(
-        payload.get("myshopify_domain")
-        or request.headers.get("X-Shopify-Shop-Domain")
+    try:
+        payload = json.loads(raw_body.decode("utf-8") or "{}")
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid webhook payload")
+
+    topic = request.headers.get("X-Shopify-Topic")
+    shop_domain = normalize_shop(
+        request.headers.get("X-Shopify-Shop-Domain")
+        or payload.get("shop_domain")
+        or payload.get("myshopify_domain")
     )
 
-    print("[WEBHOOK] uninstall received for:", shop)
+    return raw_body, payload, topic, shop_domain
 
+
+def delete_shop_data(db: Session, shop_domain: str | None) -> None:
+    shop = db.query(Shop).filter(Shop.shop_domain == shop_domain).first() if shop_domain else None
     if shop:
-        store = db.query(Shop).filter(Shop.shop_domain == shop).first()
-        if store:
-            store.is_active = False
-            store.subscription_status = "INACTIVE"
-            store.subscription_id = None
-            store.trial_ends_at = None
-            store.access_token = ""
-            store.access_token_expires_at = None
-            store.refresh_token = None
-            store.refresh_token_expires_at = None
-            db.commit()
-
-    return {"status": "ok"}
+        db.delete(shop)
+        db.commit()
 
 
-@router.post("/app-uninstalled")
-async def app_uninstalled(request: Request, db: Session = Depends(get_db)):
-    return await _handle_app_uninstalled(request, db)
+def mark_shop_uninstalled(db: Session, shop_domain: str | None) -> None:
+    shop = db.query(Shop).filter(Shop.shop_domain == shop_domain).first() if shop_domain else None
+    if not shop:
+        return
+
+    shop.is_active = False
+    shop.subscription_status = "INACTIVE"
+    shop.subscription_id = None
+    shop.trial_ends_at = None
+    shop.access_token = ""
+    shop.access_token_expires_at = None
+    shop.refresh_token = None
+    shop.refresh_token_expires_at = None
+    db.commit()
 
 
-@router.post("/uninstalled")
-async def app_uninstalled_legacy(request: Request, db: Session = Depends(get_db)):
-    return await _handle_app_uninstalled(request, db)
-
-
-@router.post("/app_subscriptions_update")
-async def app_subscriptions_update(
-    request: Request,
-    db: Session = Depends(get_db),
-):
-    body = await request.body()
-    hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
-
-    if not verify_webhook(body, hmac_header):
-        raise HTTPException(status_code=401, detail="Invalid webhook HMAC")
-
-    payload = await request.json()
-
-    shop_domain = normalize_shop(request.headers.get("X-Shopify-Shop-Domain"))
+def handle_subscription_update(db: Session, payload: dict, shop_domain: str | None) -> None:
     if not shop_domain:
         raise HTTPException(status_code=400, detail="Missing shop domain")
 
-    store = db.query(Shop).filter(Shop.shop_domain == shop_domain).first()
-    if not store:
-        raise HTTPException(status_code=404, detail="Shop not found")
+    shop = db.query(Shop).filter(Shop.shop_domain == shop_domain).first()
+    if not shop:
+        return
 
     subscription = payload.get("app_subscription") or payload
     status = subscription.get("status")
     subscription_id = subscription.get("admin_graphql_api_id") or subscription.get("id")
 
-    print("[WEBHOOK] app_subscriptions_update received for:", shop_domain)
-    print("[WEBHOOK] subscription status:", status)
-
     if status:
-        store.subscription_status = status.upper()
+        shop.subscription_status = status.upper()
 
     if subscription_id:
-        store.subscription_id = subscription_id
+        shop.subscription_id = subscription_id
 
-    if store.subscription_status in {"CANCELLED", "DECLINED", "EXPIRED", "FROZEN", "INACTIVE"}:
-        store.trial_ends_at = None
+    if shop.subscription_status in {"CANCELLED", "DECLINED", "EXPIRED", "FROZEN", "INACTIVE"}:
+        shop.trial_ends_at = None
 
     db.commit()
 
-    return {"ok": True}
+
+async def process_webhook(request: Request, db: Session) -> Response:
+    _, payload, topic, shop_domain = await read_verified_webhook(request)
+    normalized_topic = (topic or "").lower()
+
+    if normalized_topic == "app/uninstalled":
+        mark_shop_uninstalled(db, shop_domain)
+        return Response(status_code=200)
+
+    if normalized_topic == "app_subscriptions/update":
+        handle_subscription_update(db, payload, shop_domain)
+        return Response(status_code=200)
+
+    if normalized_topic == "customers/data_request":
+        return Response(status_code=200)
+
+    if normalized_topic == "customers/redact":
+        return Response(status_code=200)
+
+    if normalized_topic == "shop/redact":
+        delete_shop_data(db, shop_domain)
+        return Response(status_code=200)
+
+    return Response(status_code=200)
 
 
-# ----------------------------
-# GDPR / Privacy webhooks
-# REQUIRED for Shopify public apps
-# ----------------------------
+@router.post("")
+async def webhooks(request: Request, db: Session = Depends(get_db)):
+    return await process_webhook(request, db)
+
+
+@router.post("/")
+async def webhooks_slash(request: Request, db: Session = Depends(get_db)):
+    return await process_webhook(request, db)
+
+
+@router.post("/app-uninstalled")
+async def app_uninstalled(request: Request, db: Session = Depends(get_db)):
+    _, payload, _, shop_domain = await read_verified_webhook(request)
+    mark_shop_uninstalled(
+        db,
+        shop_domain or normalize_shop(payload.get("myshopify_domain")),
+    )
+    return Response(status_code=200)
+
+
+@router.post("/uninstalled")
+async def app_uninstalled_legacy(request: Request, db: Session = Depends(get_db)):
+    return await app_uninstalled(request, db)
+
+
+@router.post("/app_subscriptions_update")
+async def app_subscriptions_update(request: Request, db: Session = Depends(get_db)):
+    _, payload, _, shop_domain = await read_verified_webhook(request)
+    handle_subscription_update(db, payload, shop_domain)
+    return Response(status_code=200)
+
 
 @router.post("/customers/data_request")
 async def customers_data_request(request: Request):
-    return await validate_shopify_webhook(request)
+    await read_verified_webhook(request)
+    return Response(status_code=200)
 
 
 @router.post("/customers_data_request")
 async def customers_data_request_rest(request: Request):
-    return await validate_shopify_webhook(request)
+    return await customers_data_request(request)
 
 
 @router.post("/customers/redact")
 async def customers_redact(request: Request):
-    return await validate_shopify_webhook(request)
+    await read_verified_webhook(request)
+    return Response(status_code=200)
 
 
 @router.post("/customers_redact")
 async def customers_redact_rest(request: Request):
-    return await validate_shopify_webhook(request)
+    return await customers_redact(request)
 
 
 @router.post("/shop/redact")
-async def shop_redact(request: Request):
-    return await validate_shopify_webhook(request)
+async def shop_redact(request: Request, db: Session = Depends(get_db)):
+    _, payload, _, shop_domain = await read_verified_webhook(request)
+    delete_shop_data(db, shop_domain or normalize_shop(payload.get("shop_domain")))
+    return Response(status_code=200)
 
 
 @router.post("/shop_redact")
-async def shop_redact_rest(request: Request):
-    return await validate_shopify_webhook(request)
-
-
-# ----------------------------
-# Optional example webhook
-# Keep only if needed
-# ----------------------------
-
-@router.post("/orders_create")
-async def orders_create(request: Request):
-
-    raw_body = await request.body()
-    hmac_header = request.headers.get("X-Shopify-Hmac-Sha256")
-
-    if not verify_webhook(raw_body, hmac_header):
-        return Response(status_code=401)
-
-    print("Webhook received")
-    data = await request.json()
-    print("New order webhook:", data)
-
-    return Response(status_code=200)
-
-@router.get("/debug/list-webhooks")
-def list_webhooks(shop: str, db: Session = Depends(get_db)):
-    access_token = get_valid_shopify_access_token(db, shop)
-
-    res = requests.get(
-        f"https://{shop}/admin/api/2026-04/webhooks.json",
-        headers={
-            "X-Shopify-Access-Token": access_token
-        }
-    )
-
-    return res.json()
+async def shop_redact_rest(request: Request, db: Session = Depends(get_db)):
+    return await shop_redact(request, db)

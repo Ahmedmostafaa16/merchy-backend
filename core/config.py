@@ -27,3 +27,4 @@ SUPPORT_EMAIL = os.getenv("SUPPORT_EMAIL") or os.getenv("ZOHO_EMAIL") or "suppor
 APP_URL = _strip_trailing_slash(os.getenv("APP_URL", ""))
 BACKEND_PUBLIC_URL = APP_URL or _base_url_from_redirect_uri(REDIRECT_URI or "")
 FRONTEND_APP_URL = _strip_trailing_slash(os.getenv("FRONTEND_APP_URL", "http://localhost:3000"))
+CRON_SECRET = os.getenv("CRON_SECRET", "")

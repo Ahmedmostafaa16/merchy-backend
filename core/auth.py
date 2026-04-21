@@ -1,5 +1,6 @@
 import hashlib
 import hmac
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 import requests
@@ -9,6 +10,7 @@ from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
+from core.session_token import verify_shopify_session_token
 from core.config import (
     BACKEND_PUBLIC_URL,
     FRONTEND_APP_URL,
@@ -27,6 +29,7 @@ STATE_COOKIE = "shopify_oauth_state"
 HOST_COOKIE = "shopify_host"
 STATE_COOKIE_MAX_AGE = 1800  # 30 minutes
 TOKEN_REFRESH_BUFFER_SECONDS = 60
+SHOP_DOMAIN_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$")
 
 
 # ----------------------------
@@ -34,7 +37,14 @@ TOKEN_REFRESH_BUFFER_SECONDS = 60
 # ----------------------------
 
 def normalize_shop(shop: str) -> str:
-    return shop.replace("https://", "").replace("http://", "").strip().strip("/")
+    return shop.replace("https://", "").replace("http://", "").strip().strip("/").lower()
+
+
+def validate_shop_domain(shop: str) -> str:
+    normalized = normalize_shop(shop)
+    if not SHOP_DOMAIN_RE.fullmatch(normalized):
+        raise HTTPException(status_code=400, detail="Invalid shop domain")
+    return normalized
 
 
 def build_frontend_success_url() -> str:
@@ -95,7 +105,7 @@ def save_shop_token_payload(store: Shop, token_payload: dict) -> None:
 
 
 def get_valid_shopify_access_token(db: Session, shop_domain: str) -> str:
-    shop = db.query(Shop).filter(Shop.shop_domain == normalize_shop(shop_domain)).first()
+    shop = db.query(Shop).filter(Shop.shop_domain == validate_shop_domain(shop_domain)).first()
 
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
@@ -214,35 +224,6 @@ def register_webhook_rest(shop: str, access_token: str, topic: str, callback_url
         raise RuntimeError(f"Webhook create failed for {topic}: {resp.text}")
 
 
-def register_gdpr_webhooks(shop: str, access_token: str):
-    print("[GDPR] Starting registration")
-    url = f"https://{shop}/admin/api/2025-01/webhooks.json"
-    headers = {
-        "X-Shopify-Access-Token": access_token,
-        "Content-Type": "application/json",
-    }
-    topics = [
-        "customers/data_request",
-        "customers/redact",
-        "shop/redact",
-    ]
-
-    for topic in topics:
-        payload = {
-            "webhook": {
-                "topic": topic,
-                "address": f"https://merchyapp-backend.up.railway.app/webhooks/{topic.replace('/', '_')}",
-                "format": "json",
-            }
-        }
-
-        try:
-            response = requests.post(url, json=payload, headers=headers)
-            print("GDPR:", topic, response.status_code, response.text)
-        except Exception as e:
-            print(f"[GDPR] {topic} failed (non-fatal): {e}")
-
-
 def register_uninstall_webhook(shop: str, access_token: str):
     backend_base_url = require_backend_public_url()
     try:
@@ -272,7 +253,7 @@ def register_billing_update_webhook(shop: str, access_token: str):
 
 @router.get("/install")
 def install(shop: str, host: str | None = None):
-    shop = normalize_shop(shop)
+    shop = validate_shop_domain(shop)
 
     state = secrets.token_urlsafe(24)
 
@@ -316,6 +297,7 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
     params = dict(request.query_params)
 
     hmac_received = params.pop("hmac", None)
+    params.pop("signature", None)
     code = params.get("code")
     shop = params.get("shop")
     state = params.get("state")
@@ -324,7 +306,7 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
     if not shop or not code or not hmac_received or not state:
         raise HTTPException(status_code=400, detail="Missing shop/code/hmac/state")
 
-    shop = normalize_shop(shop)
+    shop = validate_shop_domain(shop)
 
     cookie_state = request.cookies.get(STATE_COOKIE)
     if not cookie_state or not hmac.compare_digest(cookie_state, state):
@@ -335,8 +317,6 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
 
     token_json = exchange_oauth_code_for_token(shop, code)
     access_token = token_json.get("access_token")
-    print("FULL TOKEN RESPONSE:", token_json)
-    print("ACCESS TOKEN:", access_token)
 
     if not access_token:
         raise HTTPException(status_code=400, detail=f"Token exchange failed: {token_json}")
@@ -344,7 +324,6 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
     store = db.query(Shop).filter(Shop.shop_domain == shop).first()
 
     if store:
-        print("Updating existing token")
         save_shop_token_payload(store, token_json)
         store.is_active = True
         # Reset trial on reinstall only if no active subscription
@@ -352,7 +331,6 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
             store.subscription_status = "TRIAL"
             store.trial_ends_at = datetime.now(timezone.utc) + timedelta(days=30)
     else:
-        print("Creating new store")
         store = Shop(
             shop_domain=shop,
             access_token=access_token,
@@ -366,15 +344,11 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
     db.add(store)
 
     db.commit()
-    print("TOKEN SAVED TO DB:", access_token)
     db.refresh(store)
 
-    print("CALLBACK REACHED")
     stored_token = store.access_token
     register_uninstall_webhook(shop, stored_token)
     register_billing_update_webhook(shop, stored_token)
-    register_gdpr_webhooks(shop, stored_token)
-    print("WEBHOOK FUNCTION CALLED")
 
     query = {"shop": shop}
     if host:
@@ -391,8 +365,14 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
 # ----------------------------
 
 @router.get("/shops/{shop}")
-def get_shop(shop: str, db: Session = Depends(get_db)):
-    shop = normalize_shop(shop)
+def get_shop(
+    shop: str,
+    token_shop: str = Depends(verify_shopify_session_token),
+    db: Session = Depends(get_db),
+):
+    shop = validate_shop_domain(shop)
+    if shop != normalize_shop(token_shop):
+        raise HTTPException(status_code=403, detail="shop mismatch")
 
     store = db.query(Shop).filter(Shop.shop_domain == shop).first()
 

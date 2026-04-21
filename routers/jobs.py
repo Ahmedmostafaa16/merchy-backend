@@ -1,9 +1,11 @@
 import time
+import hmac
 from datetime import date, timedelta, datetime, timezone
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy.orm import Session
 
+from core.config import CRON_SECRET
 from core.deps import get_db
 
 from models import Shop, Notification, Sales
@@ -18,8 +20,19 @@ from services.email_service import send_email_with_csv
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
+def require_cron_secret(x_cron_secret: str | None = Header(default=None)) -> None:
+    if not CRON_SECRET or not x_cron_secret or not hmac.compare_digest(x_cron_secret, CRON_SECRET):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid cron secret",
+        )
+
+
 @router.get("/weekly-notifications")
-def weekly_notifications(db: Session = Depends(get_db)):
+def weekly_notifications(
+    _: None = Depends(require_cron_secret),
+    db: Session = Depends(get_db),
+):
 
     notifications = (
         db.query(Notification)

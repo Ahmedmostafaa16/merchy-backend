@@ -34,7 +34,6 @@ ALLOWED_ORIGINS = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[origin for origin in ALLOWED_ORIGINS if origin],
-    allow_origin_regex=r"^https:\/\/[a-zA-Z0-9-]+\.myshopify\.com$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -75,10 +74,6 @@ async def add_shopify_headers(request: Request, call_next):
 
 
 def _request_shop_label(request: Request) -> str:
-    query_shop = request.query_params.get("shop")
-    if query_shop:
-        return normalize_shop(query_shop)
-
     webhook_shop = request.headers.get("X-Shopify-Shop-Domain")
     if webhook_shop:
         return normalize_shop(webhook_shop)
