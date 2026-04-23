@@ -322,14 +322,19 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail=f"Token exchange failed: {token_json}")
 
     store = db.query(Shop).filter(Shop.shop_domain == shop).first()
+    now = datetime.now(timezone.utc)
 
     if store:
         save_shop_token_payload(store, token_json)
         store.is_active = True
-        # Reset trial on reinstall only if no active subscription
-        if not store.subscription_status or store.subscription_status not in ("ACTIVE",):
+        trial_ends_at = store.trial_ends_at
+        if trial_ends_at is not None and trial_ends_at.tzinfo is None:
+            trial_ends_at = trial_ends_at.replace(tzinfo=timezone.utc)
+
+        if trial_ends_at and trial_ends_at > now:
             store.subscription_status = "TRIAL"
-            store.trial_ends_at = datetime.now(timezone.utc) + timedelta(days=30)
+        else:
+            store.subscription_status = "INACTIVE"
     else:
         store = Shop(
             shop_domain=shop,
@@ -339,7 +344,7 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
             refresh_token_expires_at=_expiry_datetime_from_seconds(token_json.get("refresh_token_expires_in")),
             is_active=True,
             subscription_status="TRIAL",
-            trial_ends_at=datetime.now(timezone.utc) + timedelta(days=30)
+            trial_ends_at=now + timedelta(days=30)
     )
     db.add(store)
 

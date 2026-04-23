@@ -70,12 +70,7 @@ def mark_shop_uninstalled(db: Session, shop_domain: str | None) -> None:
 
     shop.is_active = False
     shop.subscription_status = "INACTIVE"
-    shop.subscription_id = None
-    shop.trial_ends_at = None
-    shop.access_token = ""
-    shop.access_token_expires_at = None
-    shop.refresh_token = None
-    shop.refresh_token_expires_at = None
+    shop.access_token = None
     db.commit()
 
 
@@ -96,9 +91,6 @@ def handle_subscription_update(db: Session, payload: dict, shop_domain: str | No
 
     if subscription_id:
         shop.subscription_id = subscription_id
-
-    if shop.subscription_status in {"CANCELLED", "DECLINED", "EXPIRED", "FROZEN", "INACTIVE"}:
-        shop.trial_ends_at = None
 
     db.commit()
 
