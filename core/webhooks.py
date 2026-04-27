@@ -69,8 +69,6 @@ def mark_shop_uninstalled(db: Session, shop_domain: str | None) -> None:
         return
 
     shop.is_active = False
-    shop.subscription_status = "INACTIVE"
-    shop.access_token = None
     db.commit()
 
 

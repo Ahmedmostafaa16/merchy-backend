@@ -6,11 +6,11 @@ from datetime import datetime, timedelta, timezone
 import requests
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi import APIRouter, Request, HTTPException, Depends, status
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
-from core.session_token import verify_shopify_session_token
+from core.session_token import get_session_shop_domain, verify_shopify_session_token
 from core.config import (
     BACKEND_PUBLIC_URL,
     FRONTEND_APP_URL,
@@ -30,6 +30,8 @@ HOST_COOKIE = "shopify_host"
 STATE_COOKIE_MAX_AGE = 1800  # 30 minutes
 TOKEN_REFRESH_BUFFER_SECONDS = 60
 SHOP_DOMAIN_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]*\.myshopify\.com$")
+ORDERS_SCOPE = "read_orders"
+PRODUCTS_SCOPE = "read_products"
 
 
 # ----------------------------
@@ -49,6 +51,24 @@ def validate_shop_domain(shop: str) -> str:
 
 def build_frontend_success_url() -> str:
     return f"{FRONTEND_APP_URL}/install/success"
+
+
+def build_oauth_authorize_url(shop: str, state: str) -> str:
+    params = {
+        "client_id": SHOPIFY_API_KEY,
+        "scope": SCOPES,
+        "redirect_uri": REDIRECT_URI,
+        "state": state,
+    }
+    return f"https://{shop}/admin/oauth/authorize?" + urlencode(params)
+
+
+def build_reauthorization_url(shop: str, host: str | None = None) -> str:
+    backend_base_url = require_backend_public_url()
+    params = {"shop": shop}
+    if host:
+        params["host"] = host
+    return f"{backend_base_url}/auth/reauthorize?{urlencode(params)}"
 
 
 def require_backend_public_url() -> str:
@@ -104,13 +124,80 @@ def save_shop_token_payload(store: Shop, token_payload: dict) -> None:
     store.refresh_token_expires_at = _expiry_datetime_from_seconds(token_payload.get("refresh_token_expires_in"))
 
 
-def get_valid_shopify_access_token(db: Session, shop_domain: str) -> str:
+def get_granted_shopify_scopes(shop: str, access_token: str) -> set[str]:
+    response = requests.get(
+        f"https://{shop}/admin/oauth/access_scopes.json",
+        headers={
+            "X-Shopify-Access-Token": access_token,
+            "Content-Type": "application/json",
+        },
+        timeout=30,
+    )
+    response.raise_for_status()
+
+    payload = response.json()
+    scopes = payload.get("access_scopes") or []
+    granted = set()
+    for scope in scopes:
+        handle = scope.get("handle") if isinstance(scope, dict) else None
+        if handle:
+            granted.add(str(handle))
+    return granted
+
+
+def has_shopify_scope(shop: str, access_token: str, required_scope: str) -> bool:
+    return required_scope in get_granted_shopify_scopes(shop, access_token)
+
+
+def ensure_shopify_scopes(
+    shop: str,
+    access_token: str,
+    required_scopes: tuple[str, ...],
+    host: str | None = None,
+) -> None:
+    try:
+        granted_scopes = get_granted_shopify_scopes(shop, access_token)
+    except requests.RequestException as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": "scope_check_failed",
+                "message": "Unable to verify Shopify access scopes",
+                "details": str(exc),
+            },
+        ) from exc
+
+    missing_scopes = [scope for scope in required_scopes if scope not in granted_scopes]
+    if missing_scopes:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "reauthorization_required",
+                "message": "Reauthorization required to access sales data",
+                "required_scopes": list(required_scopes),
+                "missing_scopes": missing_scopes,
+                "reauth_url": build_reauthorization_url(shop, host),
+            },
+        )
+
+
+def get_valid_shopify_access_token(
+    db: Session,
+    shop_domain: str,
+    required_scopes: tuple[str, ...] = (),
+    host: str | None = None,
+) -> str:
     shop = db.query(Shop).filter(Shop.shop_domain == validate_shop_domain(shop_domain)).first()
 
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
 
+    if not shop.access_token:
+        raise HTTPException(status_code=401, detail="Shopify access token missing")
+
     if not shop.access_token_expires_at:
+        if required_scopes:
+            ensure_shopify_scopes(shop.shop_domain, shop.access_token, required_scopes, host)
         return shop.access_token
 
     now = datetime.now(timezone.utc)
@@ -135,7 +222,43 @@ def get_valid_shopify_access_token(db: Session, shop_domain: str) -> str:
     save_shop_token_payload(shop, refreshed_payload)
     db.commit()
     db.refresh(shop)
+    if required_scopes:
+        ensure_shopify_scopes(shop.shop_domain, shop.access_token, required_scopes, host)
     return shop.access_token
+
+
+def _request_host(request: Request) -> str | None:
+    return (
+        request.headers.get("X-Shopify-Host")
+        or request.query_params.get("host")
+        or request.cookies.get(HOST_COOKIE)
+    )
+
+
+def get_valid_shop(required_scopes: tuple[str, ...] = ()):
+    def dependency(
+        request: Request,
+        shop_domain: str = Depends(get_session_shop_domain),
+        db: Session = Depends(get_db),
+    ) -> Shop:
+        normalized_shop = validate_shop_domain(shop_domain)
+        store = db.query(Shop).filter(Shop.shop_domain == normalized_shop).first()
+
+        if not store:
+            raise HTTPException(status_code=404, detail="Shop not found")
+        if not store.is_active:
+            raise HTTPException(status_code=403, detail="Shop is not active")
+
+        get_valid_shopify_access_token(
+            db,
+            normalized_shop,
+            required_scopes=required_scopes,
+            host=_request_host(request),
+        )
+
+        return store
+
+    return dependency
 
 
 def verify_hmac(params: dict, received_hmac: str) -> bool:
@@ -256,15 +379,7 @@ def install(shop: str, host: str | None = None):
     shop = validate_shop_domain(shop)
 
     state = secrets.token_urlsafe(24)
-
-    params = {
-        "client_id": SHOPIFY_API_KEY,
-        "scope": SCOPES,
-        "redirect_uri": REDIRECT_URI,
-        "state": state,
-    }
-
-    url = f"https://{shop}/admin/oauth/authorize?" + urlencode(params)
+    url = build_oauth_authorize_url(shop, state)
     response = RedirectResponse(url)
 
     response.set_cookie(
@@ -286,6 +401,11 @@ def install(shop: str, host: str | None = None):
         )
 
     return response
+
+
+@router.get("/reauthorize")
+def reauthorize(shop: str, host: str | None = None):
+    return install(shop=shop, host=host)
 
 
 # ----------------------------
@@ -326,6 +446,7 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
 
     if store:
         save_shop_token_payload(store, token_json)
+        store.installed_at = now
         store.is_active = True
         trial_ends_at = store.trial_ends_at
         if trial_ends_at is not None and trial_ends_at.tzinfo is None:
@@ -342,6 +463,7 @@ def shopify_callback(request: Request, db: Session = Depends(get_db)):
             access_token_expires_at=_expiry_datetime_from_seconds(token_json.get("expires_in")),
             refresh_token=token_json.get("refresh_token"),
             refresh_token_expires_at=_expiry_datetime_from_seconds(token_json.get("refresh_token_expires_in")),
+            installed_at=now,
             is_active=True,
             subscription_status="TRIAL",
             trial_ends_at=now + timedelta(days=30)

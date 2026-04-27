@@ -3,11 +3,12 @@ from datetime import date, datetime, timedelta, timezone
 import io
 now = datetime.now(timezone.utc)
 
-from fastapi import APIRouter, Depends, HTTPException,Query,status
+from fastapi import APIRouter, Depends, HTTPException,Query,status, Request
 from fastapi.responses import RedirectResponse, HTMLResponse, StreamingResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from models import Inventory, Shop, Sales
+from core.auth import ORDERS_SCOPE, PRODUCTS_SCOPE, get_valid_shop
 from core.deps import get_active_shop, get_db
 from services.shopify import Operations
 from services.inventory_repo import get_last_inventory_update,get_sales_time_range,get_sales_period
@@ -44,6 +45,7 @@ def _shop_has_sales_data(db: Session, shop_id: int, sales_duration: int) -> bool
 def sync_inventory(
     shop: Shop = Depends(get_active_shop),
     db: Session = Depends(get_db),
+    request: Request = None,
 ):
     import traceback
 
@@ -64,7 +66,12 @@ def sync_inventory(
         }
 
     try:
-        ops = Operations.from_shop(db, shop.shop_domain)
+        ops = Operations.from_shop(
+            db,
+            shop.shop_domain,
+            required_scopes=(PRODUCTS_SCOPE,),
+            host=request.headers.get("X-Shopify-Host") if request else None,
+        )
         rows = ops.get_inventory() or []
     except Exception:
         traceback.print_exc()
@@ -124,8 +131,9 @@ def sync_inventory(
 @router.post("/sync/sales") 
 
 def sync_sales(
-               shop: Shop = Depends(get_active_shop),
+               shop: Shop = Depends(get_valid_shop((ORDERS_SCOPE,))),
                db: Session = Depends(get_db),
+               request: Request = None,
                start_date: date = Query(...), 
                end_date: date = Query(...)):
         sales_period = get_sales_time_range(db, shop.id)
@@ -141,7 +149,12 @@ def sync_sales(
                 "sales_period": sales_period
             }
             
-        ops = Operations.from_shop(db, shop.shop_domain)
+        ops = Operations.from_shop(
+            db,
+            shop.shop_domain,
+            required_scopes=(ORDERS_SCOPE,),
+            host=request.headers.get("X-Shopify-Host") if request else None,
+        )
         ops.delete_sales(shop.id,db)
         rows = ops.get_sales(start_date, end_date)
         sales_rows = [{"shop_id": shop.id, **row} for row in rows]

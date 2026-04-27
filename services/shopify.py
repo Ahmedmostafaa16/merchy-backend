@@ -18,8 +18,19 @@ class Operations:
         }
 
     @classmethod
-    def from_shop(cls, database: Session, shop_domain: str):
-        access_token = get_valid_shopify_access_token(database, shop_domain)
+    def from_shop(
+        cls,
+        database: Session,
+        shop_domain: str,
+        required_scopes: tuple[str, ...] = (),
+        host: str | None = None,
+    ):
+        access_token = get_valid_shopify_access_token(
+            database,
+            shop_domain,
+            required_scopes=required_scopes,
+            host=host,
+        )
         return cls(shop_domain, access_token)
 
     # ---------- Internal helper ----------

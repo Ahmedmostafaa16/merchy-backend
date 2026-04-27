@@ -10,6 +10,7 @@ from core.deps import get_db
 
 from models import Shop, Notification, Sales
 
+from core.auth import ORDERS_SCOPE
 from services.shopify import Operations
 from services.notification_engine import low_stock_items
 from services.inventory_repo import get_sales_period
@@ -64,7 +65,11 @@ def weekly_notifications(
 
             print(f"[CRON] Syncing sales from {start_date} to {end_date}")
 
-            ops = Operations.from_shop(db, shop.shop_domain)
+            ops = Operations.from_shop(
+                db,
+                shop.shop_domain,
+                required_scopes=(ORDERS_SCOPE,),
+            )
 
             # Delete old sales
             ops.delete_sales(shop.id, db)
