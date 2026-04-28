@@ -156,7 +156,20 @@ def sync_sales(
             host=request.headers.get("X-Shopify-Host") if request else None,
         )
         ops.delete_sales(shop.id,db)
-        rows = ops.get_sales(start_date, end_date)
+        try:
+            rows = ops.get_sales(start_date, end_date)
+        except Exception as exc:
+            error_message = str(exc)
+            if (
+                "ACCESS_DENIED" in error_message
+                or "not approved to access the Order object" in error_message
+            ):
+                return {
+                    "status": "no_orders_access",
+                    "message": "Orders access not approved yet",
+                    "data": []
+                }
+            raise
         sales_rows = [{"shop_id": shop.id, **row} for row in rows]
         db.bulk_insert_mappings(Sales, sales_rows)
         db.commit()
