@@ -18,6 +18,7 @@ from services.location_service import get_shop_locations
 from typing import Annotated
 
 router = APIRouter(prefix="/requests", tags=["requests"])
+report_router = APIRouter(tags=["requests"])
 
 
 def _no_sales_data_response():
@@ -267,6 +268,7 @@ def inventory_search(
 
 
         
+@report_router.post("/report", status_code=status.HTTP_200_OK)
 @router.post("/report", status_code=status.HTTP_200_OK)
 def forecast_all(
     shop: Shop = Depends(get_active_shop),
@@ -307,6 +309,8 @@ def forecast_all(
 
         return rows
 
+    except HTTPException:
+        raise
     except Exception:
         import traceback
         traceback.print_exc()

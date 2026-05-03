@@ -8,7 +8,7 @@ from core.config import FRONTEND_APP_URL
 from core.auth import normalize_shop, router as auth_router
 from core.session_token import verify_shopify_session_token
 from core.webhooks import router as webhooks_router
-from routers.requests import router as requests_router
+from routers.requests import report_router, router as requests_router
 from routers.dashboard import router as dashboard_router
 from routers.api import router as api_router
 from routers.notifications import router as notifications_router
@@ -108,6 +108,7 @@ async def log_requests(request: Request, call_next):
 app.include_router(auth_router)
 app.include_router(webhooks_router)
 app.include_router(requests_router)
+app.include_router(report_router)
 app.include_router(dashboard_router)
 app.include_router(api_router)
 app.include_router(notifications_router)
