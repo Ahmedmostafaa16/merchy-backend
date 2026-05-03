@@ -308,7 +308,6 @@ def inventory_search(
 
 
         
-@report_router.post("/report", status_code=status.HTTP_200_OK)
 @router.post("/report", status_code=status.HTTP_200_OK)
 def forecast_all(
     shop: Shop = Depends(get_active_shop),
@@ -317,35 +316,55 @@ def forecast_all(
     minimum_value: int = Query(..., gt=0),
 ):
     try:
-        # âœ… Get sales duration
-        sales_duration = get_sales_period(db, shop.id)
+        print("🚀 REPORT CALLED")
 
-        if not _shop_has_sales_data(db, shop.id, sales_duration):
+        sales_duration = get_sales_period(db, shop.id)
+        print("📊 SALES DURATION:", sales_duration)
+
+        if sales_duration <= 0:
+            return {"status": "no_sales_duration"}
+
+        has_sales = _shop_has_sales_data(db, shop.id, sales_duration)
+        print("📊 HAS SALES:", has_sales)
+
+        if not has_sales:
             return _no_sales_data_response()
 
-        # âœ… Get user-selected locations
         location_ids = get_shop_locations(db, shop.id)
+        print("📍 USER LOCATIONS:", location_ids)
 
-        # âš ï¸ Fallback: if user didnâ€™t select anything â†’ use all locations
         if not location_ids:
             location_ids = db.query(Location.id).filter(
                 Location.shop_id == shop.id
             ).all()
             location_ids = [l[0] for l in location_ids]
 
-        # ðŸš¨ Safety check (important)
+        print("📍 FINAL LOCATIONS:", location_ids)
+
         if not location_ids:
             raise HTTPException(status_code=400, detail="No locations available for this shop")
 
-        # âœ… Call forecast with location filtering
         rows = forecast_all_items(
             database=db,
             restock_days=number_of_days,
             sales_duration=sales_duration,
             minimum_value=minimum_value,
             shop_id=shop.id,
-            location_ids=location_ids   # ðŸ”¥ THIS WAS MISSING
+            location_ids=location_ids
         )
+
+        print("📦 FORECAST ROWS COUNT:", len(rows))
+        print("📦 SAMPLE ROWS:", rows[:3] if rows else [])
+
+        if not rows:
+            return {
+                "status": "empty",
+                "message": "No forecast data generated",
+                "debug": {
+                    "sales_duration": sales_duration,
+                    "locations": location_ids
+                }
+            }
 
         return rows
 
@@ -356,64 +375,8 @@ def forecast_all(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="Forecast failed")
         
-@router.post("/customized/report", status_code=status.HTTP_200_OK)
-def customized_report(
-    items: Annotated[list[str], Query(...)],
-    number_of_days: int,
-    shop: Shop = Depends(get_active_shop),
-    db: Session = Depends(get_db),minimum_value: int = Query(..., gt=0),
-):
-    try:
-        # get time range
-        time_diff = get_sales_period(db, shop.id)
-        if not _shop_has_sales_data(db, shop.id, time_diff):
-            return _no_sales_data_response()
 
-        # build forecast
-        rows = forecast_items(
-                db,
-                list(items),
-                shop.id,
-                number_of_days,
-                time_diff,minimum_value
-            )
-        
-        
-
-        return rows
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise
     
-    
-@router.get("/breakdown", status_code=status.HTTP_200_OK)
-def export_items_breakdown(
-    shop: Shop = Depends(get_active_shop),
-    db: Session = Depends(get_db),
-    number_of_days: int = Query(..., gt=0),
-):
-    try:
-        sales_duration = get_sales_period(db, shop.id)
-        if sales_duration <= 0:
-            return []
-
-        breakdown_rows = items_breakdown(
-            db,
-            shop.id,
-            number_of_days,
-            sales_duration
-        )
-
-        return breakdown_rows
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Breakdown generation failed: {str(e)}"
-        )
 
     
   
-
