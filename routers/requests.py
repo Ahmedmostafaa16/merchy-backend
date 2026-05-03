@@ -1,4 +1,4 @@
-import datetime
+﻿import datetime
 from datetime import date, datetime, timedelta, timezone
 import io
 now = datetime.now(timezone.utc)
@@ -74,6 +74,9 @@ def sync_inventory(
         )
 
         rows = ops.get_inventory() or []
+        print("🔥 INVENTORY RAW ROWS:", rows[:5])
+        print("🔥 INVENTORY COUNT:", len(rows))
+
     except Exception:
         traceback.print_exc()
         db.rollback()
@@ -81,7 +84,8 @@ def sync_inventory(
 
     try:
         if not rows:
-            return {"status": "empty", "message": "No inventory data found"}
+            print("❌ NO DATA RETURNED FROM SHOPIFY")
+            return {"status": "empty"}
 
         inventory_rows = []
 
@@ -90,18 +94,17 @@ def sync_inventory(
                 continue
 
             variant_gid = row.get("variant_id")
-            if not variant_gid:
+            location_gid = row.get("location_id")
+            if not variant_gid or not location_gid:
                 continue
-            location_id = row.get("location_id")
 
-            # 🔥 convert Shopify GID → int
             try:
-                variant_id = int(variant_gid.split("/")[-1])
+                variant_id = int(str(variant_gid).split("/")[-1])
             except Exception:
                 continue
 
             try:
-                location_id = int(location_id.split("/")[-1])
+                location_id = int(str(location_gid).split("/")[-1])
             except Exception:
                 continue
 
@@ -121,19 +124,28 @@ def sync_inventory(
                 "price": row.get("price"),
             })
 
+        print("📦 INSERT INVENTORY:", inventory_rows[:5])
+        print("📦 INSERT INVENTORY COUNT:", len(inventory_rows))
+
         if not inventory_rows:
-            return {"status": "empty", "message": "No inventory data found"}
+            print("❌ NO DATA RETURNED FROM SHOPIFY")
+            return {"status": "empty"}
 
-        # 🔥 delete old data (safe for now)
         ops.delete_inventory(shop.id, db)
+        print("🧹 OLD DATA DELETED")
 
-        # ⚡ bulk insert (fast)
-        db.bulk_insert_mappings(Inventory, inventory_rows)
+        if inventory_rows:
+            db.bulk_insert_mappings(Inventory, inventory_rows)
+            print("✅ BULK INSERT CALLED")
+
         db.commit()
-        print("✅ SALES INSERT COMMITTED")
+        print("💾 DB COMMIT DONE")
 
-        count = db.query(Sales).filter(Sales.shop_id == shop.id).count()
-        print("📊 TOTAL SALES IN DB:", count)
+        inv_count = db.query(Inventory).filter(Inventory.shop_id == shop.id).count()
+        print("📊 INVENTORY COUNT IN DB:", inv_count)
+
+        sales_count = db.query(Sales).filter(Sales.shop_id == shop.id).count()
+        print("📊 SALES COUNT IN DB:", sales_count)
 
     except Exception:
         traceback.print_exc()
@@ -144,7 +156,6 @@ def sync_inventory(
         "status": "success",
         "message": f"Inventory synced for shop {shop.shop_domain}"
     }
-
 @router.post("/sync/sales")
 def sync_sales(
     shop: Shop = Depends(get_valid_shop((ORDERS_SCOPE,))),
@@ -156,7 +167,6 @@ def sync_sales(
     import traceback
     from dateutil.parser import isoparse
 
-    # ✅ Skip if same range already exists
     sales_period = get_sales_time_range(db, shop.id)
     if (
         sales_period["min_sales_date"]
@@ -178,9 +188,9 @@ def sync_sales(
             host=request.headers.get("X-Shopify-Host") if request else None,
         )
 
-        rows = ops.get_sales(start_date, end_date)
-        print("🔥 RAW SALES ROWS:", rows[:5])
-        print("🔥 TOTAL ROWS:", len(rows))
+        rows = ops.get_sales(start_date, end_date) or []
+        print("🔥 SALES RAW ROWS:", rows[:5])
+        print("🔥 SALES COUNT:", len(rows))
 
     except Exception as exc:
         error_message = str(exc)
@@ -201,7 +211,8 @@ def sync_sales(
 
     try:
         if not rows:
-            return {"status": "empty", "message": "No sales data found"}
+            print("❌ NO DATA RETURNED FROM SHOPIFY")
+            return {"status": "empty"}
 
         sales_rows = []
 
@@ -213,9 +224,8 @@ def sync_sales(
             if not variant_gid:
                 continue
 
-            # 🔥 Convert Shopify GID → int
             try:
-                variant_id = int(variant_gid.split("/")[-1])
+                variant_id = int(str(variant_gid).split("/")[-1])
             except Exception:
                 continue
 
@@ -227,6 +237,7 @@ def sync_sales(
             created_at = row.get("created_at")
             if not created_at:
                 continue
+
             if hasattr(created_at, "date"):
                 created_at = created_at.date()
             else:
@@ -238,29 +249,35 @@ def sync_sales(
             sales_rows.append({
                 "shop_id": shop.id,
                 "variant_id": variant_id,
-                "title": (row.get("product_title") or "")[:200],
+                "title": (row.get("product_title") or row.get("title") or "")[:200],
                 "variant_title": (row.get("variant_title") or "")[:100],
                 "sku": (row.get("sku") or "")[:50],
                 "quantity_sold": quantity,
                 "created_at": created_at,
             })
 
-        print("📦 INSERTING SALES ROWS:", sales_rows[:5])
-        print("📦 TOTAL INSERT:", len(sales_rows))
+        print("📦 INSERT SALES:", sales_rows[:5])
+        print("📦 INSERT SALES COUNT:", len(sales_rows))
 
         if not sales_rows:
-            return {"status": "empty", "message": "No valid sales data"}
+            print("❌ NO DATA RETURNED FROM SHOPIFY")
+            return {"status": "empty"}
 
-        # 🔥 Delete old period (better than full delete)
         ops.delete_sales(shop.id, db)
+        print("🧹 OLD DATA DELETED")
 
-        # ⚡ Bulk insert
-        db.bulk_insert_mappings(Sales, sales_rows)
+        if sales_rows:
+            db.bulk_insert_mappings(Sales, sales_rows)
+            print("✅ BULK INSERT CALLED")
+
         db.commit()
-        print("✅ SALES INSERT COMMITTED")
+        print("💾 DB COMMIT DONE")
 
-        count = db.query(Sales).filter(Sales.shop_id == shop.id).count()
-        print("📊 TOTAL SALES IN DB:", count)
+        inv_count = db.query(Inventory).filter(Inventory.shop_id == shop.id).count()
+        print("📊 INVENTORY COUNT IN DB:", inv_count)
+
+        sales_count = db.query(Sales).filter(Sales.shop_id == shop.id).count()
+        print("📊 SALES COUNT IN DB:", sales_count)
 
     except Exception:
         traceback.print_exc()
@@ -271,8 +288,6 @@ def sync_sales(
         "status": "success",
         "message": f"Sales synced for shop {shop.shop_domain} for {start_date} → {end_date}"
     }
-        
-        
 @router.get("/inventory/search", status_code=status.HTTP_200_OK)
 def inventory_search(
     search_query: str,
@@ -302,34 +317,34 @@ def forecast_all(
     minimum_value: int = Query(..., gt=0),
 ):
     try:
-        # ✅ Get sales duration
+        # âœ… Get sales duration
         sales_duration = get_sales_period(db, shop.id)
 
         if not _shop_has_sales_data(db, shop.id, sales_duration):
             return _no_sales_data_response()
 
-        # ✅ Get user-selected locations
+        # âœ… Get user-selected locations
         location_ids = get_shop_locations(db, shop.id)
 
-        # ⚠️ Fallback: if user didn’t select anything → use all locations
+        # âš ï¸ Fallback: if user didnâ€™t select anything â†’ use all locations
         if not location_ids:
             location_ids = db.query(Location.id).filter(
                 Location.shop_id == shop.id
             ).all()
             location_ids = [l[0] for l in location_ids]
 
-        # 🚨 Safety check (important)
+        # ðŸš¨ Safety check (important)
         if not location_ids:
             raise HTTPException(status_code=400, detail="No locations available for this shop")
 
-        # ✅ Call forecast with location filtering
+        # âœ… Call forecast with location filtering
         rows = forecast_all_items(
             database=db,
             restock_days=number_of_days,
             sales_duration=sales_duration,
             minimum_value=minimum_value,
             shop_id=shop.id,
-            location_ids=location_ids   # 🔥 THIS WAS MISSING
+            location_ids=location_ids   # ðŸ”¥ THIS WAS MISSING
         )
 
         return rows
@@ -401,3 +416,4 @@ def export_items_breakdown(
 
     
   
+

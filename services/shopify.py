@@ -100,7 +100,9 @@ class Operations:
         rows = []
 
         while has_next_page:
+            print("🚀 GRAPHQL CALLED")
             data = self._graphql(query, {"cursor": cursor})
+            print("📡 GRAPHQL RESPONSE:", data)
             products = data.get("products", {})
 
             for product_edge in products.get("edges", []):
@@ -207,7 +209,9 @@ class Operations:
 
       while has_next_page:
         
+          print("🚀 GRAPHQL CALLED")
           data = self._graphql(query, {"cursor": cursor, "query": date_query})
+          print("📡 GRAPHQL RESPONSE:", data)
           orders = data["orders"]
 
           for order_edge in orders["edges"]:
