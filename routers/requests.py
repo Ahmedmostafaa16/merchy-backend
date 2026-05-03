@@ -2,7 +2,8 @@
 from datetime import date, datetime, timedelta, timezone
 import io
 now = datetime.now(timezone.utc)
-
+import traceback
+from dateutil.parser import isoparse
 from fastapi import APIRouter, Depends, HTTPException,Query,status, Request
 from fastapi.responses import RedirectResponse, HTMLResponse, StreamingResponse
 from sqlalchemy import func
@@ -48,9 +49,8 @@ def sync_inventory(
     shop: Shop = Depends(get_active_shop),
     db: Session = Depends(get_db),
     request: Request = None,
-):
-    import traceback
-    from datetime import datetime, timezone, timedelta
+    ):
+
 
     try:
         last_update = get_last_inventory_update(db, shop.id)
@@ -58,7 +58,7 @@ def sync_inventory(
             return {
                 "status": "skipped",
                 "reason": "Inventory already available",
-                "last_updated_at": last_update.isoformat()
+                "last_updated_at": last_update.isoformat(),
             }
     except Exception:
         traceback.print_exc()
@@ -73,79 +73,20 @@ def sync_inventory(
             host=request.headers.get("X-Shopify-Host") if request else None,
         )
 
-        rows = ops.get_inventory() or []
-        print("🔥 INVENTORY RAW ROWS:", rows[:5])
-        print("🔥 INVENTORY COUNT:", len(rows))
+        inventory_rows = ops.get_inventory() or []
 
     except Exception:
         traceback.print_exc()
         db.rollback()
         return {"status": "error", "message": "Inventory sync failed"}
 
+    if not inventory_rows:
+        return {"status": "empty"}
+
     try:
-        if not rows:
-            print("❌ NO DATA RETURNED FROM SHOPIFY")
-            return {"status": "empty"}
-
-        inventory_rows = []
-
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-
-            variant_gid = row.get("variant_id")
-            location_gid = row.get("location_id")
-            if not variant_gid or not location_gid:
-                continue
-
-            try:
-                variant_id = int(str(variant_gid).split("/")[-1])
-            except Exception:
-                continue
-
-            try:
-                location_id = int(str(location_gid).split("/")[-1])
-            except Exception:
-                continue
-
-            try:
-                inventory_quantity = int(row.get("inventory") or 0)
-            except (TypeError, ValueError):
-                inventory_quantity = 0
-
-            inventory_rows.append({
-                "shop_id": shop.id,
-                "variant_id": variant_id,
-                "location_id": location_id,
-                "title": (row.get("product_title") or "")[:200],
-                "variant_title": (row.get("variant_title") or "")[:100],
-                "sku": (row.get("sku") or "")[:50],
-                "inventory": inventory_quantity,
-                "price": row.get("price"),
-            })
-
-        print("📦 INSERT INVENTORY:", inventory_rows[:5])
-        print("📦 INSERT INVENTORY COUNT:", len(inventory_rows))
-
-        if not inventory_rows:
-            print("❌ NO DATA RETURNED FROM SHOPIFY")
-            return {"status": "empty"}
-
         ops.delete_inventory(shop.id, db)
-        print("🧹 OLD DATA DELETED")
-
-        if inventory_rows:
-            db.bulk_insert_mappings(Inventory, inventory_rows)
-            print("✅ BULK INSERT CALLED")
-
+        db.bulk_insert_mappings(Inventory, inventory_rows)
         db.commit()
-        print("💾 DB COMMIT DONE")
-
-        inv_count = db.query(Inventory).filter(Inventory.shop_id == shop.id).count()
-        print("📊 INVENTORY COUNT IN DB:", inv_count)
-
-        sales_count = db.query(Sales).filter(Sales.shop_id == shop.id).count()
-        print("📊 SALES COUNT IN DB:", sales_count)
 
     except Exception:
         traceback.print_exc()
@@ -154,20 +95,21 @@ def sync_inventory(
 
     return {
         "status": "success",
-        "message": f"Inventory synced for shop {shop.shop_domain}"
+        "message": f"Inventory synced for shop {shop.shop_domain}",
     }
+    
+    
 @router.post("/sync/sales")
 def sync_sales(
     shop: Shop = Depends(get_valid_shop((ORDERS_SCOPE,))),
     db: Session = Depends(get_db),
     request: Request = None,
     start_date: date = Query(...),
-    end_date: date = Query(...)
+    end_date: date = Query(...),
 ):
-    import traceback
-    from dateutil.parser import isoparse
 
     sales_period = get_sales_time_range(db, shop.id)
+
     if (
         sales_period["min_sales_date"]
         and sales_period["max_sales_date"]
@@ -177,7 +119,7 @@ def sync_sales(
         return {
             "status": "skipped",
             "reason": "Sales data already available for the specified period",
-            "sales_period": sales_period
+            "sales_period": sales_period,
         }
 
     try:
@@ -188,9 +130,7 @@ def sync_sales(
             host=request.headers.get("X-Shopify-Host") if request else None,
         )
 
-        rows = ops.get_sales(start_date, end_date) or []
-        print("🔥 SALES RAW ROWS:", rows[:5])
-        print("🔥 SALES COUNT:", len(rows))
+        sales_rows = ops.get_sales(start_date, end_date) or []
 
     except Exception as exc:
         error_message = str(exc)
@@ -202,82 +142,20 @@ def sync_sales(
             return {
                 "status": "no_orders_access",
                 "message": "Orders access not approved yet",
-                "data": []
+                "data": [],
             }
 
         traceback.print_exc()
         db.rollback()
         return {"status": "error", "message": "Sales sync failed"}
 
+    if not sales_rows:
+        return {"status": "empty"}
+
     try:
-        if not rows:
-            print("❌ NO DATA RETURNED FROM SHOPIFY")
-            return {"status": "empty"}
-
-        sales_rows = []
-
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-
-            variant_gid = row.get("variant_id")
-            if not variant_gid:
-                continue
-
-            try:
-                variant_id = int(str(variant_gid).split("/")[-1])
-            except Exception:
-                continue
-
-            try:
-                quantity = int(row.get("quantity_sold") or 0)
-            except (TypeError, ValueError):
-                quantity = 0
-
-            created_at = row.get("created_at")
-            if not created_at:
-                continue
-
-            if hasattr(created_at, "date"):
-                created_at = created_at.date()
-            else:
-                try:
-                    created_at = isoparse(str(created_at)).date()
-                except Exception:
-                    continue
-
-            sales_rows.append({
-                "shop_id": shop.id,
-                "variant_id": variant_id,
-                "title": (row.get("product_title") or row.get("title") or "")[:200],
-                "variant_title": (row.get("variant_title") or "")[:100],
-                "sku": (row.get("sku") or "")[:50],
-                "quantity_sold": quantity,
-                "created_at": created_at,
-            })
-
-        print("📦 INSERT SALES:", sales_rows[:5])
-        print("📦 INSERT SALES COUNT:", len(sales_rows))
-
-        if not sales_rows:
-            print("❌ NO DATA RETURNED FROM SHOPIFY")
-            return {"status": "empty"}
-
         ops.delete_sales(shop.id, db)
-        print("🧹 OLD DATA DELETED")
-
-        if sales_rows:
-            db.bulk_insert_mappings(Sales, sales_rows)
-            print("✅ BULK INSERT CALLED")
-
+        db.bulk_insert_mappings(Sales, sales_rows)
         db.commit()
-        print("💾 DB COMMIT DONE")
-
-        inv_count = db.query(Inventory).filter(Inventory.shop_id == shop.id).count()
-        print("📊 INVENTORY COUNT IN DB:", inv_count)
-
-        sales_count = db.query(Sales).filter(Sales.shop_id == shop.id).count()
-        print("📊 SALES COUNT IN DB:", sales_count)
 
     except Exception:
         traceback.print_exc()
@@ -286,24 +164,9 @@ def sync_sales(
 
     return {
         "status": "success",
-        "message": f"Sales synced for shop {shop.shop_domain} for {start_date} → {end_date}"
+        "message": f"Sales synced for shop {shop.shop_domain} for {start_date} → {end_date}",
     }
-@router.get("/inventory/search", status_code=status.HTTP_200_OK)
-def inventory_search(
-    search_query: str,
-    shop: Shop = Depends(get_active_shop),
-    db: Session = Depends(get_db),
-                                    ):
-        if not search_query or len(search_query) < 2:
-            return []
 
-        results = search_inventory(
-            db,
-            shop.id,
-            search_query
-        )
-
-        return results  # [] if no matches
 
 
 
@@ -316,33 +179,29 @@ def forecast_all(
     minimum_value: int = Query(..., gt=0),
 ):
     try:
-        print("🚀 REPORT CALLED")
-
         sales_duration = get_sales_period(db, shop.id)
-        print("📊 SALES DURATION:", sales_duration)
 
         if sales_duration <= 0:
             return {"status": "no_sales_duration"}
 
-        has_sales = _shop_has_sales_data(db, shop.id, sales_duration)
-        print("📊 HAS SALES:", has_sales)
-
-        if not has_sales:
+        if not _shop_has_sales_data(db, shop.id, sales_duration):
             return _no_sales_data_response()
 
         location_ids = get_shop_locations(db, shop.id)
-        print("📍 USER LOCATIONS:", location_ids)
 
         if not location_ids:
-            location_ids = db.query(Location.id).filter(
-                Location.shop_id == shop.id
-            ).all()
-            location_ids = [l[0] for l in location_ids]
-
-        print("📍 FINAL LOCATIONS:", location_ids)
+            location_ids = [
+                l[0]
+                for l in db.query(Location.id)
+                .filter(Location.shop_id == shop.id)
+                .all()
+            ]
 
         if not location_ids:
-            raise HTTPException(status_code=400, detail="No locations available for this shop")
+            raise HTTPException(
+                status_code=400,
+                detail="No locations available for this shop"
+            )
 
         rows = forecast_all_items(
             database=db,
@@ -350,11 +209,8 @@ def forecast_all(
             sales_duration=sales_duration,
             minimum_value=minimum_value,
             shop_id=shop.id,
-            location_ids=location_ids
+            location_ids=location_ids,
         )
-
-        print("📦 FORECAST ROWS COUNT:", len(rows))
-        print("📦 SAMPLE ROWS:", rows[:3] if rows else [])
 
         if not rows:
             return {
@@ -362,8 +218,8 @@ def forecast_all(
                 "message": "No forecast data generated",
                 "debug": {
                     "sales_duration": sales_duration,
-                    "locations": location_ids
-                }
+                    "locations": location_ids,
+                },
             }
 
         return rows
@@ -371,10 +227,8 @@ def forecast_all(
     except HTTPException:
         raise
     except Exception:
-        import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail="Forecast failed")
-        
 
     
 

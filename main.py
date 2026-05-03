@@ -108,7 +108,6 @@ async def log_requests(request: Request, call_next):
 app.include_router(auth_router)
 app.include_router(webhooks_router)
 app.include_router(requests_router)
-app.include_router(report_router)
 app.include_router(dashboard_router)
 app.include_router(api_router)
 app.include_router(notifications_router)
