@@ -46,11 +46,20 @@ def sync_locations(
         }
         """
 
-        data = ops._graphql(query, {})
-        print("RAW DATA:", data)
+        resp = ops._graphql(query, {})
+        print("RAW RESPONSE:", resp)
 
+        data = resp.get("data", resp)
 
         locations = data.get("locations", {}).get("edges", [])
+
+        if not locations:
+            print("⚠️ EMPTY LOCATIONS OR ERROR RESPONSE:", data)
+            return {
+                "status": "empty",
+                "count": 0,
+                "raw": data
+            }
 
         if not locations:
             print("⚠️ No locations returned or wrong response:", data)
@@ -64,11 +73,16 @@ def sync_locations(
         locations_list = []
 
         for edge in locations:
-            node = edge["node"]
+            node = edge.get("node", {})
+            gid = node.get("id")
+            if not gid:
+                print("❌ Missing ID:", node)
+                continue
 
             try:
-                location_id = int(node["id"].split("/")[-1])
-            except Exception:
+                location_id = int(gid.split("/")[-1])
+            except Exception as e:
+                print("❌ ID PARSE ERROR:", gid, e)
                 continue
 
             locations_list.append({
@@ -76,6 +90,15 @@ def sync_locations(
                 "shop_id": shop.id,
                 "name": node["name"],
             })
+
+        print("PARSED:", locations_list)
+
+        if not locations_list:
+            print("⚠️ No valid locations after parsing")
+            return {
+                "status": "empty_after_parse",
+                "count": 0
+            }
 
         print("INSERTING:", locations_list)
 
@@ -95,9 +118,12 @@ def sync_locations(
             "count": len(locations),
         }
 
-    except Exception:
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        print("❌ ERROR:", str(e))
         db.rollback()
-        raise HTTPException(status_code=500, detail="Failed to sync locations")
+        raise
 
 
 # 🔹 POST: Set user location preferences
