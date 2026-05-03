@@ -1,11 +1,13 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List
 import uuid
 
+from core.auth import PRODUCTS_SCOPE
 from core.deps import get_active_shop, get_db
 from models import Shop, Location, ShopLocationPreference
+from services.shopify import Operations
 
 router = APIRouter()
 
@@ -13,6 +15,64 @@ router = APIRouter()
 # ✅ Request schema
 class LocationPreferenceRequest(BaseModel):
     location_ids: List[int]
+
+
+@router.post("/locations/sync")
+def sync_locations(
+    request: Request,
+    shop: Shop = Depends(get_active_shop),
+    db: Session = Depends(get_db),
+):
+    try:
+        ops = Operations.from_shop(
+            db,
+            shop.shop_domain,
+            required_scopes=(PRODUCTS_SCOPE,),
+            host=request.headers.get("X-Shopify-Host") if request else None,
+        )
+
+        query = """
+        {
+          locations(first: 10) {
+            edges {
+              node {
+                id
+                name
+              }
+            }
+          }
+        }
+        """
+
+        data = ops._graphql(query, {})
+        locations = data["locations"]["edges"]
+
+        db.query(Location).filter(
+            Location.shop_id == shop.id
+        ).delete()
+
+        db.bulk_insert_mappings(
+            Location,
+            [
+                {
+                    "id": int(edge["node"]["id"].split("/")[-1]),
+                    "shop_id": shop.id,
+                    "name": edge["node"]["name"],
+                }
+                for edge in locations
+            ]
+        )
+
+        db.commit()
+
+        return {
+            "status": "success",
+            "count": len(locations),
+        }
+
+    except Exception:
+        db.rollback()
+        raise HTTPException(status_code=500, detail="Failed to sync locations")
 
 
 # 🔹 POST: Set user location preferences
