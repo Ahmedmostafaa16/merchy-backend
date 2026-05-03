@@ -49,7 +49,16 @@ def sync_locations(
         data = ops._graphql(query, {})
         print("RAW DATA:", data)
 
-        locations = data["locations"]["edges"]
+
+        locations = data.get("locations", {}).get("edges", [])
+
+        if not locations:
+            print("⚠️ No locations returned or wrong response:", data)
+            return {
+                "status": "empty",
+                "count": 0
+            }
+
         print("PARSED LOCATIONS:", locations)
 
         locations_list = []
