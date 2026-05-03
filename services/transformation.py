@@ -30,7 +30,8 @@ def forecast_all_items(
     restock_days: int,
     sales_duration: int,
     minimum_value: int,
-    shop_id: str
+    shop_id: str,
+    location_ids: list[int]   # 🔥 added
 ):
     """
     Forecast restock amounts and classify item velocity.
@@ -41,36 +42,37 @@ def forecast_all_items(
         WITH sales2 AS (
             SELECT 
                 shop_id,
-                title,
-                size,
-                color,
-                sku,
+                variant_id,
                 COALESCE(SUM(quantity_sold), 0) AS net_items_sold
             FROM sales
             WHERE shop_id = :shop_id
-            GROUP BY shop_id, title, size, color, sku
+            GROUP BY shop_id, variant_id
         ),
 
         main AS (
             SELECT
-                i.title,
-                i.size,
-                i.sku,
-                i.inventory,
+                i.variant_id,
+                MAX(i.title) AS title,
+                MAX(i.variant_title) AS variant_title,
+                MAX(i.sku) AS sku,
+                SUM(i.inventory) AS inventory,
                 i.shop_id,
-                i.price,
+                MAX(i.price) AS price,
                 COALESCE(s.net_items_sold, 0) AS net_items_sold
             FROM inventory i
             LEFT JOIN sales2 s
-                ON i.sku = s.sku
-            AND i.shop_id = s.shop_id
+                ON i.variant_id = s.variant_id
+                AND i.shop_id = s.shop_id
             WHERE i.shop_id = :shop_id
+              AND i.location_id = ANY(:location_ids)   -- 🔥 added
+            GROUP BY i.variant_id, i.shop_id, s.net_items_sold
         ),
 
         cte3 AS (
             SELECT
+                variant_id,
                 title,
-                size,
+                variant_title,
                 sku,
                 inventory,
                 shop_id,
@@ -78,12 +80,15 @@ def forecast_all_items(
                 price,
 
                 CASE
-                    WHEN :sales_duration <= 0 OR net_items_sold = 0 THEN NULL
-                    ELSE ROUND(
-                        inventory / (net_items_sold::numeric / :sales_duration),
-                        2
+                    WHEN :sales_duration <= 0 OR net_items_sold = 0 THEN 0
+                    ELSE GREATEST(
+                        ROUND(
+                            inventory / (net_items_sold::numeric / :sales_duration),
+                            2
+                        ),
+                        0
                     )
-                END AS lifetime,
+                END AS coverage_days,   -- 🔥 renamed + never negative
 
                 CASE
                     WHEN :sales_duration <= 0 OR net_items_sold = 0 THEN 0
@@ -91,7 +96,6 @@ def forecast_all_items(
                 END AS sales_per_day
 
             FROM main
-            WHERE sku IS NOT NULL
         ),
 
         restock_table AS (
@@ -112,15 +116,16 @@ def forecast_all_items(
                 percentile_cont(0.50) WITHIN GROUP (ORDER BY sales_per_day) AS q2,
                 percentile_cont(0.75) WITHIN GROUP (ORDER BY sales_per_day) AS q3
             FROM restock_table
-            where net_items_sold > 0
+            WHERE net_items_sold > 0
         )
 
         SELECT
+            r.variant_id,
             r.title,
-            r.size,
+            r.variant_title,
             r.sku,
-            r.lifetime,
-            ROUND(r.sales_per_day,2) AS sales_per_day,
+            r.coverage_days,
+            ROUND(r.sales_per_day, 2) AS sales_per_day,
             r.inventory,
 
             CASE
@@ -136,20 +141,18 @@ def forecast_all_items(
         FROM restock_table r
         CROSS JOIN quartiles q
         ORDER BY r.sales_per_day DESC
-        """)
+    """)
 
-    result = database.execute(
-        sql,
-        {
-            "shop_id": shop_id,
-            "sales_duration": sales_duration,
-            "restock_days": restock_days,
-            "minimum_value": minimum_value
-        }
-    )
+    result = database.execute(sql, {
+        "shop_id": shop_id,
+        "restock_days": restock_days,
+        "sales_duration": sales_duration,
+        "minimum_value": minimum_value,
+        "location_ids": location_ids   # 🔥 added
+    })
 
-    rows = result.mappings().all()
-    return rows
+    return [dict(row) for row in result].mappings().all()
+
 
 
 def forecast_items(

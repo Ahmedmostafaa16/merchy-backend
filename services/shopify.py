@@ -52,22 +52,36 @@ class Operations:
 
         return data["data"]
 
-    # ---------- Public method ----------
+# ---------- Public method ----------
     def get_inventory(self):
         query = """
         query ($cursor: String) {
           products(first: 50, after: $cursor) {
             edges {
-              cursor
               node {
+                id
                 title
                 variants(first: 50) {
                   edges {
                     node {
-                      title
+                      id
                       sku
+                      title
                       price
-                      inventoryQuantity
+                      inventoryItem {
+                        id
+                        inventoryLevels(first: 10) {
+                          edges {
+                            node {
+                              available
+                              location {
+                                id
+                                name
+                              }
+                            }
+                          }
+                        }
+                      }
                     }
                   }
                 }
@@ -87,26 +101,60 @@ class Operations:
 
         while has_next_page:
             data = self._graphql(query, {"cursor": cursor})
-            products = data["products"]
+            products = data.get("products", {})
 
-            for product_edge in products["edges"]:
-                product_title = product_edge["node"]["title"]
+            for product_edge in products.get("edges", []):
+                product_node = product_edge.get("node", {})
+                product_title = product_node.get("title", "")
 
-                for variant_edge in product_edge["node"]["variants"]["edges"]:
-                    variant = variant_edge["node"]
+                for variant_edge in product_node.get("variants", {}).get("edges", []):
+                    variant = variant_edge.get("node", {})
 
-                    rows.append({
+                    if not variant:
+                        continue
 
-                        "title": product_title,
-                        "size": variant["title"],
-                        "sku": variant["sku"],
-                        "inventory": variant["inventoryQuantity"],
-                        "price": variant["price"],
-                        
-                    })
+                    # 🔥 Extract variant_id safely
+                    try:
+                        variant_id = int(variant["id"].split("/")[-1])
+                    except Exception:
+                        continue
 
-            cursor = products["pageInfo"]["endCursor"]
-            has_next_page = products["pageInfo"]["hasNextPage"]
+                    inventory_item = variant.get("inventoryItem")
+                    if not inventory_item:
+                        continue
+
+                    inventory_levels = inventory_item.get("inventoryLevels", {}).get("edges", [])
+
+                    # 🔥 Loop per location (CRITICAL CHANGE)
+                    for level_edge in inventory_levels:
+                        node = level_edge.get("node", {})
+
+                        location = node.get("location")
+                        if not location:
+                            continue
+
+                        try:
+                            location_id = int(location["id"].split("/")[-1])
+                        except Exception:
+                            continue
+
+                        try:
+                            available = int(node.get("available") or 0)
+                        except (TypeError, ValueError):
+                            available = 0
+
+                        rows.append({
+                            "variant_id": variant_id,
+                            "location_id": location_id,
+                            "product_title": product_title,
+                            "variant_title": variant.get("title"),
+                            "sku": variant.get("sku"),
+                            "inventory": available,
+                            "price": variant.get("price"),
+                        })
+
+            cursor = products.get("pageInfo", {}).get("endCursor")
+            has_next_page = products.get("pageInfo", {}).get("hasNextPage")
 
         return rows
       
@@ -116,26 +164,25 @@ class Operations:
         database.commit()
         
     def get_sales(self, start_date, end_date) -> list:
-        start_date = start_date.isoformat()
-        end_date = end_date.isoformat()
+      start_date = start_date.isoformat()
+      end_date = end_date.isoformat()
 
-        query = """
-        query ($cursor: String, $query: String!) {
-          orders(
-            first: 50
-            after: $cursor
-            query: $query
-          ) {
-            edges {
-              node {
-                createdAt
-                lineItems(first: 50) {
-                  edges {
-                    node {
+      query = """
+      query ($cursor: String, $query: String!) {
+        orders(first: 50, after: $cursor, query: $query) {
+          edges {
+            node {
+              createdAt
+              lineItems(first: 50) {
+                edges {
+                  node {
+                    title
+                    quantity
+                    variant {
+                      id
+                      sku
                       title
-                      quantity
-                      variant {
-                        sku
+                      product {
                         title
                       }
                     }
@@ -143,45 +190,56 @@ class Operations:
                 }
               }
             }
-            pageInfo {
-              hasNextPage
-              endCursor
-            }
+          }
+          pageInfo {
+            hasNextPage
+            endCursor
           }
         }
-        """
+      }
+      """
 
-        date_query = f"created_at:>={start_date} created_at:<={end_date}"
+      date_query = f"created_at:>={start_date} created_at:<={end_date}"
 
-        cursor = None
-        has_next_page = True
-        sales_rows = []
+      cursor = None
+      has_next_page = True
+      sales_rows = []
 
-        while has_next_page:
-            data = self._graphql(query, {"cursor": cursor, "query": date_query})
-            orders = data["orders"]
+      while has_next_page:
+        
+          data = self._graphql(query, {"cursor": cursor, "query": date_query})
+          orders = data["orders"]
 
-            for order_edge in orders["edges"]:
-                order_node = order_edge["node"]
-                created_at = isoparse(order_node["createdAt"])
+          for order_edge in orders["edges"]:
+              order_node = order_edge["node"]
 
-                for item_edge in order_node["lineItems"]["edges"]:
-                    item = item_edge["node"]
-                    variant = item.get("variant")
+              created_at = isoparse(order_node["createdAt"]).date()
 
-                    sales_rows.append({
-                        "title": item["title"],
-                        "size": variant["title"] if variant else None,
-                        "color":variant["color"] if variant and "color" in variant else None,
-                        "sku": variant["sku"] if variant else None,
-                        "quantity_sold": int(item["quantity"]),
-                        "created_at": created_at
-                    })
+              for item_edge in order_node["lineItems"]["edges"]:
+                  item = item_edge["node"]
+                  variant = item.get("variant")
 
-            cursor = orders["pageInfo"]["endCursor"]
-            has_next_page = orders["pageInfo"]["hasNextPage"]
+                  if not variant:
+                      continue
 
-        return sales_rows
+                  try:
+                      variant_id = int(variant["id"].split("/")[-1])
+                  except Exception:
+                      continue
+
+                  sales_rows.append({
+                      "variant_id": variant_id,
+                      "title": variant["product"]["title"] if variant.get("product") else item.get("title", ""),
+                      "variant_title": variant["title"],
+                      "sku": variant["sku"],
+                      "quantity_sold": int(item.get("quantity") or 0),
+                      "created_at": created_at
+                  })
+
+          cursor = orders["pageInfo"]["endCursor"]
+          has_next_page = orders["pageInfo"]["hasNextPage"]
+
+      return sales_rows
       
     def delete_sales(self,shop_id : str ,database: Session):
         database.query(Sales).filter(Sales.shop_id == shop_id).delete()

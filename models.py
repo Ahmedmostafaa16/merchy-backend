@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Date, ForeignKey, Numeric, String, Boolean, DateTime, Integer
+from sqlalchemy import BigInteger, Column, Date, ForeignKey, Numeric, String, Boolean, DateTime, Integer, UniqueConstraint,Index
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -51,30 +51,47 @@ class Inventory(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     shop_id = Column(UUID(as_uuid=True), ForeignKey("shops.id"), nullable=False)
+    variant_id = Column(BigInteger, nullable=False)
+    location_id = Column(BigInteger, nullable=False)
     title = Column(String(200))
-    size = Column(String(30))
-    color = Column(String, nullable=True)
-    sku = Column(String(30), nullable=True)
-    inventory = Column(Integer)
+    variant_title = Column(String(100))  # e.g. "S / Black"
+    sku = Column(String(50), nullable=True)
+    inventory = Column(Integer, default=0)
     price = Column(Numeric(10, 2))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     shop = relationship("Shop", back_populates="inventory_items")
+
+    __table_args__ = (
+        UniqueConstraint("shop_id", "variant_id", "location_id", name="uq_inventory_variant_location"),
+        Index("idx_inventory_shop_variant", "shop_id", "variant_id"),
+    )
 
 
 class Sales(Base):
     __tablename__ = "sales"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+
     shop_id = Column(UUID(as_uuid=True), ForeignKey("shops.id"), nullable=False)
+
+    variant_id = Column(BigInteger, nullable=False)
+
     title = Column(String(200))
-    size = Column(String(30))
-    color = Column(String, nullable=True)
-    sku = Column(String(30), nullable=True)
-    quantity_sold = Column(Integer)
+    variant_title = Column(String(100))
+
+    sku = Column(String(50), nullable=True)
+
+    quantity_sold = Column(Integer, nullable=False)
+
     created_at = Column(Date, nullable=False, index=True)
 
     shop = relationship("Shop", back_populates="sales_records")
+
+    __table_args__ = (
+        Index("idx_sales_shop_variant_date", "shop_id", "variant_id", "created_at"),
+    )
 
 
 class Notification(Base):
@@ -146,3 +163,21 @@ class POItem(Base):
     total_price = Column(Numeric(12, 2), nullable=False)
 
     purchase_order = relationship("PurchaseOrder", back_populates="items")
+    
+    
+    
+class Location(Base):
+    __tablename__ = "locations"
+
+    id = Column(BigInteger, primary_key=True)  # Shopify ID
+    shop_id = Column(UUID(as_uuid=True), ForeignKey("shops.id"))
+    name = Column(String(100))
+    
+    
+    
+class ShopLocationPreference(Base):
+    __tablename__ = "shop_location_preferences"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    shop_id = Column(UUID(as_uuid=True), ForeignKey("shops.id"))
+    location_id = Column(BigInteger)
