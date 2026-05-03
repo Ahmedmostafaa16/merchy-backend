@@ -73,7 +73,10 @@ class Operations:
                         inventoryLevels(first: 10) {
                           edges {
                             node {
-                              available
+                              quantities(names: ["available"]) {
+                                name
+                                quantity
+                              }
                               location {
                                 id
                                 name
@@ -100,9 +103,7 @@ class Operations:
         rows = []
 
         while has_next_page:
-            print("🚀 GRAPHQL CALLED")
             data = self._graphql(query, {"cursor": cursor})
-            print("📡 GRAPHQL RESPONSE:", data)
             products = data.get("products", {})
 
             for product_edge in products.get("edges", []):
@@ -140,8 +141,17 @@ class Operations:
                         except Exception:
                             continue
 
+                        available_quantity = next(
+                            (
+                                quantity_info.get("quantity")
+                                for quantity_info in node.get("quantities", [])
+                                if quantity_info.get("name") == "available"
+                            ),
+                            0
+                        )
+
                         try:
-                            available = int(node.get("available") or 0)
+                            available = int(available_quantity or 0)
                         except (TypeError, ValueError):
                             available = 0
 
@@ -209,9 +219,8 @@ class Operations:
 
       while has_next_page:
         
-          print("🚀 GRAPHQL CALLED")
           data = self._graphql(query, {"cursor": cursor, "query": date_query})
-          print("📡 GRAPHQL RESPONSE:", data)
+
           orders = data["orders"]
 
           for order_edge in orders["edges"]:
