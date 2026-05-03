@@ -24,6 +24,8 @@ def sync_locations(
     db: Session = Depends(get_db),
 ):
     try:
+        print("SYNC CALLED")
+
         ops = Operations.from_shop(
             db,
             shop.shop_domain,
@@ -45,7 +47,28 @@ def sync_locations(
         """
 
         data = ops._graphql(query, {})
+        print("RAW DATA:", data)
+
         locations = data["locations"]["edges"]
+        print("PARSED LOCATIONS:", locations)
+
+        locations_list = []
+
+        for edge in locations:
+            node = edge["node"]
+
+            try:
+                location_id = int(node["id"].split("/")[-1])
+            except Exception:
+                continue
+
+            locations_list.append({
+                "id": location_id,
+                "shop_id": shop.id,
+                "name": node["name"],
+            })
+
+        print("INSERTING:", locations_list)
 
         db.query(Location).filter(
             Location.shop_id == shop.id
@@ -53,14 +76,7 @@ def sync_locations(
 
         db.bulk_insert_mappings(
             Location,
-            [
-                {
-                    "id": int(edge["node"]["id"].split("/")[-1]),
-                    "shop_id": shop.id,
-                    "name": edge["node"]["name"],
-                }
-                for edge in locations
-            ]
+            locations_list
         )
 
         db.commit()
