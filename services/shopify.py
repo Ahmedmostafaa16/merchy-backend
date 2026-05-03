@@ -1,15 +1,16 @@
 import requests
 from sqlalchemy.orm import Session
 from core.auth import get_valid_shopify_access_token
-from models import Inventory,Sales
+from models import Inventory, Sales, Shop
 from dateutil.parser import isoparse
  
 
 
 class Operations:
-    def __init__(self, domain: str, token: str):
+    def __init__(self, domain: str, token: str, shop_id=None):
         self.domain = domain
         self.token = token
+        self.shop_id = shop_id
         self.endpoint = f"https://{self.domain}/admin/api/2024-01/graphql.json"
 
         self.headers = {
@@ -31,7 +32,8 @@ class Operations:
             required_scopes=required_scopes,
             host=host,
         )
-        return cls(shop_domain, access_token)
+        shop = database.query(Shop).filter(Shop.shop_domain == shop_domain).first()
+        return cls(shop_domain, access_token, shop.id if shop else None)
 
     # ---------- Internal helper ----------
     def _graphql(self, query: str, variables: dict | None = None):
@@ -156,6 +158,7 @@ class Operations:
                             available = 0
 
                         rows.append({
+                            "shop_id": self.shop_id,
                             "variant_id": variant_id,
                             "location_id": location_id,
                             "product_title": product_title,
