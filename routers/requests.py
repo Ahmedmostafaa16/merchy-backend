@@ -90,6 +90,8 @@ def sync_inventory(
                 continue
 
             variant_gid = row.get("variant_id")
+            if not variant_gid:
+                continue
             location_id = row.get("location_id")
 
             # 🔥 convert Shopify GID → int
@@ -128,6 +130,10 @@ def sync_inventory(
         # ⚡ bulk insert (fast)
         db.bulk_insert_mappings(Inventory, inventory_rows)
         db.commit()
+        print("✅ SALES INSERT COMMITTED")
+
+        count = db.query(Sales).filter(Sales.shop_id == shop.id).count()
+        print("📊 TOTAL SALES IN DB:", count)
 
     except Exception:
         traceback.print_exc()
@@ -148,6 +154,7 @@ def sync_sales(
     end_date: date = Query(...)
 ):
     import traceback
+    from dateutil.parser import isoparse
 
     # ✅ Skip if same range already exists
     sales_period = get_sales_time_range(db, shop.id)
@@ -172,6 +179,8 @@ def sync_sales(
         )
 
         rows = ops.get_sales(start_date, end_date)
+        print("🔥 RAW SALES ROWS:", rows[:5])
+        print("🔥 TOTAL ROWS:", len(rows))
 
     except Exception as exc:
         error_message = str(exc)
@@ -201,6 +210,8 @@ def sync_sales(
                 continue
 
             variant_gid = row.get("variant_id")
+            if not variant_gid:
+                continue
 
             # 🔥 Convert Shopify GID → int
             try:
@@ -216,6 +227,13 @@ def sync_sales(
             created_at = row.get("created_at")
             if not created_at:
                 continue
+            if hasattr(created_at, "date"):
+                created_at = created_at.date()
+            else:
+                try:
+                    created_at = isoparse(str(created_at)).date()
+                except Exception:
+                    continue
 
             sales_rows.append({
                 "shop_id": shop.id,
@@ -227,6 +245,9 @@ def sync_sales(
                 "created_at": created_at,
             })
 
+        print("📦 INSERTING SALES ROWS:", sales_rows[:5])
+        print("📦 TOTAL INSERT:", len(sales_rows))
+
         if not sales_rows:
             return {"status": "empty", "message": "No valid sales data"}
 
@@ -236,6 +257,10 @@ def sync_sales(
         # ⚡ Bulk insert
         db.bulk_insert_mappings(Sales, sales_rows)
         db.commit()
+        print("✅ SALES INSERT COMMITTED")
+
+        count = db.query(Sales).filter(Sales.shop_id == shop.id).count()
+        print("📊 TOTAL SALES IN DB:", count)
 
     except Exception:
         traceback.print_exc()
