@@ -161,7 +161,7 @@ class Operations:
                             "shop_id": self.shop_id,
                             "variant_id": variant_id,
                             "location_id": location_id,
-                            "product_title": product_title,
+                            "title": product_title,
                             "variant_title": variant.get("title"),
                             "sku": variant.get("sku"),
                             "inventory": available,
