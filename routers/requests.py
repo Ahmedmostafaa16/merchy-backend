@@ -52,18 +52,19 @@ def sync_inventory(
     ):
 
 
-    try:
-        last_update = get_last_inventory_update(db, shop.id)
-        if last_update and datetime.now(timezone.utc) - last_update <= timedelta(hours=12):
-            return {
-                "status": "skipped",
-                "reason": "Inventory already available",
-                "last_updated_at": last_update.isoformat(),
-            }
-    except Exception:
-        traceback.print_exc()
-        db.rollback()
-        return {"status": "error", "message": "Inventory sync failed"}
+    # Temporary: inventory guard disabled so existing rows can be refreshed with titles.
+    # try:
+    #     last_update = get_last_inventory_update(db, shop.id)
+    #     if last_update and datetime.now(timezone.utc) - last_update <= timedelta(hours=24):
+    #         return {
+    #             "status": "skipped",
+    #             "reason": "Inventory already available",
+    #             "last_updated_at": last_update.isoformat(),
+    #         }
+    # except Exception:
+    #     traceback.print_exc()
+    #     db.rollback()
+    #     return {"status": "error", "message": "Inventory sync failed"}
 
     try:
         ops = Operations.from_shop(
