@@ -32,9 +32,14 @@ class DashboardServices:
         return 0.0
         
     def total_sku_count(self) -> int:
-        return self.data_base.query(func.count(Inventory.sku)).filter(Inventory.shop_id == self.shop_id).filter(Inventory.sku.isnot(None)).scalar()
-    
-    
+        return (
+            self.data_base.query(func.count(func.distinct(Inventory.sku)))
+            .filter(Inventory.shop_id == self.shop_id)
+            .filter(Inventory.sku.isnot(None))
+            .filter(Inventory.sku != "")
+            .scalar()
+        )
+
     def average_sales_per_day(self) -> float:
         total_sales_row = (
             self.data_base.query(func.coalesce(func.sum(Sales.quantity_sold), 0))

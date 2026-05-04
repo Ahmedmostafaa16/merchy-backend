@@ -151,7 +151,7 @@ def forecast_all_items(
         "location_ids": location_ids   # 🔥 added
     })
 
-    return [dict(row) for row in result].mappings().all()
+    return [dict(row) for row in result.mappings().all()]
 
 
 
