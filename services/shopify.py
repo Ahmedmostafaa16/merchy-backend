@@ -244,6 +244,7 @@ class Operations:
                       continue
 
                   sales_rows.append({
+                      "shop_id": self.shop_id,
                       "variant_id": variant_id,
                       "title": variant["product"]["title"] if variant.get("product") else item.get("title", ""),
                       "variant_title": variant["title"],
