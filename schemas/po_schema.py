@@ -24,6 +24,22 @@ class POStatusUpdate(BaseModel):
     status: str
 
 
+class POItemUpdate(BaseModel):
+    id: Optional[UUID] = None
+    sku: Optional[str] = None
+    title: Optional[str] = None
+    quantity: conint(ge=0)
+    unit_price: condecimal(ge=0, max_digits=12, decimal_places=2)
+
+
+class POUpdate(BaseModel):
+    supplier_name: Optional[str] = None
+    status: Optional[str] = None
+    due_date: Optional[datetime] = None
+    currency: Optional[str] = None
+    items: Optional[List[POItemUpdate]] = None
+
+
 class POItemResponse(BaseModel):
     id: UUID
     sku: str

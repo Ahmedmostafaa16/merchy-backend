@@ -4,11 +4,12 @@ from sqlalchemy.orm import Session
 
 from core.deps import get_active_shop, get_db
 from models import Shop
-from schemas.po_schema import POCreate, POResponse, POStatusUpdate
+from schemas.po_schema import POCreate, POResponse, POStatusUpdate, POUpdate
 from services.po_service import (
     create_po,
     list_pos,
     get_po_by_id,
+    update_po,
     update_po_status,
     delete_po,
 )
@@ -51,6 +52,16 @@ def patch_purchase_order_status(
     db: Session = Depends(get_db),
 ):
     return update_po_status(db, shop.shop_domain, po_id, payload.status)
+
+
+@router.patch("/{po_id}", response_model=POResponse)
+def patch_purchase_order(
+    po_id: UUID,
+    payload: POUpdate,
+    shop: Shop = Depends(get_active_shop),
+    db: Session = Depends(get_db),
+):
+    return update_po(db, shop.shop_domain, po_id, payload)
 
 
 @router.delete("/{po_id}")
