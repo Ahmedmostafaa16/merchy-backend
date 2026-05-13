@@ -15,7 +15,7 @@ def fetch_sales_data(
 
     today = datetime.utcnow().date()
 
-    start_date = (today - timedelta(days=90)).isoformat()
+    start_date = (today - timedelta(days=365)).isoformat()
     end_date = today.isoformat()
 
     url = f"https://{shop_domain}/admin/api/{SHOPIFY_API_VERSION}/graphql.json"
