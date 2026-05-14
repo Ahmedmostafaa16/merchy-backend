@@ -27,6 +27,15 @@ def forecast_demand(
 
     skus = payload.skus
 
+    print(
+        "[forecast-debug][router] forecast request",
+        {
+            "shop": shop.shop_domain,
+            "sku_count": len(skus),
+            "skus": skus,
+        },
+    )
+
     if not skus:
         return {
             "status": "error",
@@ -39,6 +48,22 @@ def forecast_demand(
         skus=skus,
     )
 
+    print(
+        "[forecast-debug][router] sales_data received",
+        {
+            "sku_count": len(sales_data),
+            "shape": {
+                sku: {
+                    "date_count": len(date_quantities),
+                    "total_qty": sum(date_quantities.values()),
+                    "first_date": min(date_quantities) if date_quantities else None,
+                    "last_date": max(date_quantities) if date_quantities else None,
+                }
+                for sku, date_quantities in sales_data.items()
+            },
+        },
+    )
+
     if not sales_data:
         return {
             "status": "error",
@@ -46,6 +71,22 @@ def forecast_demand(
         }
 
     forecast_results = forecast_all_skus(sales_data)
+
+    print(
+        "[forecast-debug][router] forecast_results",
+        {
+            "sku_count": len(forecast_results),
+            "payload": forecast_results,
+            "contains_daily_series": {
+                sku: any(
+                    key in result
+                    for key in ("series", "forecast_series", "daily_forecast", "points")
+                )
+                for sku, result in forecast_results.items()
+                if isinstance(result, dict)
+            },
+        },
+    )
 
     return {
         "status": "success",
